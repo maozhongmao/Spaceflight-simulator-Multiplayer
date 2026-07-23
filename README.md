@@ -6,17 +6,35 @@
 
 > 客户端与服务端必须使用同一代网络协议，V1 与 V2 不能混用。
 
-### Net V2（推荐）
+### v0.2.0 — TCP Net V2（推荐）
 
 Net V2 使用 TCP 通信，并加入心跳、火箭同步流量控制和网络调试信息。
+
+**更新内容：**
+
+- 网络传输从 UDP/Lidgren 切换为 TCP；
+- 增加连接握手、心跳和 Ping/Pong；
+- 关键事件使用 FIFO 队列，火箭状态只保留最新值，降低网络阻塞；
+- 受控火箭按 20 Hz、移动火箭按 5 Hz、静止火箭按 3 秒快照同步；
+- 增加 F8 客户端网络调试窗口和服务端调试模式；
+- 增加世界和单枚火箭重新同步能力。
 
 - [下载 Net V2 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-1.6-NetV2.zip)
 - [下载 Net V2 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-Server.exe)
 - [查看 Net V2 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/net-v2)
 
-### Net V1（旧版）
+### v0.1.2 — Net V1（旧版）
 
 Net V1 是早期 SFS 1.6 实时联机版本，保留用于兼容和归档。
+
+**更新内容：**
+
+- 首个适配 SFS 1.6.00.16 的实时联机发行版；
+- 提供独立 UDP 服务端；
+- 支持世界、火箭、部件状态、时间、聊天和玩家控制同步；
+- 修正客户端与服务端的协议编号、字符串和聊天数据格式；
+- 修正集合反序列化导致多变量火箭无法加入的问题；
+- 修正部件销毁路由、离散事件时序、重复时间戳插值和聊天等待问题。
 
 - [下载 Net V1 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/MultiplayerSFS-1.6.dll)
 - [下载 Net V1 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/SFS-Multiplayer-Server.exe)
@@ -30,7 +48,7 @@ Net V1 是早期 SFS 1.6 实时联机版本，保留用于兼容和归档。
 4. 在客户端输入服务端地址和端口加入游戏。
 5. 所有玩家必须使用与服务端一致的版本。
 
-V3 及后续开发版本暂未开源。服务器和客户端发行文件请从 [Releases](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases) 下载。
+V3 及后续开发版本暂未开源。下一个正式版本计划使用 **v1.0.0**。服务器和客户端发行文件请从 [Releases](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases) 下载。
 
 ---
 
