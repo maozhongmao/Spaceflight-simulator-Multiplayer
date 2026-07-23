@@ -1,5 +1,43 @@
 # Spaceflight-simulator-Multiplayer
 
+## SFS 1.6 实时联机版
+
+本仓库现在提供适用于 **Steam Spaceflight Simulator 1.6.00.16** 的客户端模组与独立联机服务端。
+
+> 客户端与服务端必须使用同一代网络协议，V1 与 V2 不能混用。
+
+### Net V2（推荐）
+
+Net V2 使用 TCP 通信，并加入心跳、火箭同步流量控制和网络调试信息。
+
+- [下载 Net V2 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-1.6-NetV2.zip)
+- [下载 Net V2 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-Server.exe)
+- [查看 Net V2 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/net-v2)
+
+### Net V1（旧版）
+
+Net V1 是早期 SFS 1.6 实时联机版本，保留用于兼容和归档。
+
+- [下载 Net V1 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/MultiplayerSFS-1.6.dll)
+- [下载 Net V1 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/SFS-Multiplayer-Server.exe)
+- [查看 Net V1 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/net-v1)
+
+### 安装与启动
+
+1. 安装支持 SFS 1.6 的 Mod Loader 和 `UITools`。
+2. 将对应版本的客户端文件放入游戏的 `Mods` 目录。
+3. 启动对应版本的 `SFS-Multiplayer-Server.exe`。
+4. 在客户端输入服务端地址和端口加入游戏。
+5. 所有玩家必须使用与服务端一致的版本。
+
+V3 及后续开发版本暂未开源。服务器和客户端发行文件请从 [Releases](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases) 下载。
+
+---
+
+## 原始 Python 项目
+
+以下内容为 L4z41 创建的原始项目说明，予以保留。
+
 Welcome to spaceflight simulator multiplayer made by L4z41
 
 # HOW DOES IT WORK?
