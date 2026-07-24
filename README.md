@@ -6,7 +6,29 @@
 
 > 客户端与服务端必须使用同一代网络协议，V1 与 V2 不能混用。
 
-### v0.2.0 — TCP Net V2（推荐）
+### v0.3.2 — TCP Net V2（推荐）
+
+### V0.3.2（GitHub Release）
+
+本次发布将 **V0.3.2.3** 的构建文件原样同步到 GitHub，公开版本号统一写为 **V0.3.2**。
+
+**更新内容：**
+
+- TCP V3 兼容传输层；
+- 火箭同步采用自适应频率策略；
+- 对接/解除对接改为服务端权威处理；
+- 修复对接口对齐坐标变换；
+- 增加多对接口并发保护；
+- 修复当前客户端线的时间同步协议兼容问题。
+
+**说明：**
+
+- 上传的附件就是原始的 V0.3.2.3 构建产物，没有重新打包、没有改内容；
+- 旧版本会继续保留，不覆盖。
+
+- [下载 V0.3.2 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/v0.3.2/SFS-Multiplayer-1.6-NetV3.2.3.zip)
+- [下载 V0.3.2 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/v0.3.2/SFS-Multiplayer-Server.exe)
+- [查看 V0.3.2 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/v0.3.2)
 
 Net V2 使用 TCP 通信，并加入心跳、火箭同步流量控制和网络调试信息。
 
