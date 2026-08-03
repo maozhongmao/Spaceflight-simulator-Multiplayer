@@ -1,0 +1,52 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{42170C8E-D71C-4632-A785-8BA800051BF9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SfsMultiplayer.Protocol", "SfsMultiplayer.Protocol", "{5E94A72A-74F9-430F-ACD7-717FA01D4A5A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SfsMultiplayer.Protocol", "src\SfsMultiplayer.Protocol\SfsMultiplayer.Protocol\SfsMultiplayer.Protocol.csproj", "{0EACF377-0B7A-4725-B337-096516A97036}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SfsMultiplayer.Server", "SfsMultiplayer.Server", "{7F5E4514-1C4B-4891-A663-7EE8A7B38839}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SfsMultiplayer.Server", "src\SfsMultiplayer.Server\SfsMultiplayer.Server\SfsMultiplayer.Server.csproj", "{D7E4F7BB-6636-413C-A9FC-40FFECA357F1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D77FBEC2-117D-4D6F-BDF7-692263FD5561}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SfsMultiplayer.Tests", "SfsMultiplayer.Tests", "{21C278A6-5AAB-4D8A-937B-BD85A4D3502B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SfsMultiplayer.Tests", "tests\SfsMultiplayer.Tests\SfsMultiplayer.Tests\SfsMultiplayer.Tests.csproj", "{DE3E0EB2-963F-44D0-9782-4125D1556C00}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0EACF377-0B7A-4725-B337-096516A97036}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0EACF377-0B7A-4725-B337-096516A97036}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0EACF377-0B7A-4725-B337-096516A97036}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0EACF377-0B7A-4725-B337-096516A97036}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D7E4F7BB-6636-413C-A9FC-40FFECA357F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D7E4F7BB-6636-413C-A9FC-40FFECA357F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D7E4F7BB-6636-413C-A9FC-40FFECA357F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D7E4F7BB-6636-413C-A9FC-40FFECA357F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DE3E0EB2-963F-44D0-9782-4125D1556C00}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DE3E0EB2-963F-44D0-9782-4125D1556C00}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DE3E0EB2-963F-44D0-9782-4125D1556C00}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DE3E0EB2-963F-44D0-9782-4125D1556C00}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{5E94A72A-74F9-430F-ACD7-717FA01D4A5A} = {42170C8E-D71C-4632-A785-8BA800051BF9}
+		{0EACF377-0B7A-4725-B337-096516A97036} = {5E94A72A-74F9-430F-ACD7-717FA01D4A5A}
+		{7F5E4514-1C4B-4891-A663-7EE8A7B38839} = {42170C8E-D71C-4632-A785-8BA800051BF9}
+		{D7E4F7BB-6636-413C-A9FC-40FFECA357F1} = {7F5E4514-1C4B-4891-A663-7EE8A7B38839}
+		{21C278A6-5AAB-4D8A-937B-BD85A4D3502B} = {D77FBEC2-117D-4D6F-BDF7-692263FD5561}
+		{DE3E0EB2-963F-44D0-9782-4125D1556C00} = {21C278A6-5AAB-4D8A-937B-BD85A4D3502B}
+	EndGlobalSection
+EndGlobal

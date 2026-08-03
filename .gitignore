@@ -1,0 +1,9 @@
+# .NET build output
+**/bin/
+**/obj/
+*.user
+*.suo
+
+# Server runtime state and local configuration
+Server/data/
+Server/server.json
