@@ -1,74 +1,58 @@
 # Spaceflight-simulator-Multiplayer
 
-## SFS 1.6 实时联机版
+Spaceflight Simulator 1.6 的实时多人联机项目。
 
-本仓库现在提供适用于 **Steam Spaceflight Simulator 1.6.00.16** 的客户端模组与独立联机服务端。
+本项目通过客户端模组和独立服务端，让多个玩家进入同一个 SFS 世界，实时同步玩家火箭及其状态，并提供多人联机所需的基础网络功能。
 
-> 客户端与服务端必须使用同一代网络协议，V1 与 V2 不能混用。
+## 项目组成
 
-### v0.3.2 — TCP Net V2（推荐）
+- `Client/`：SFS 1.6 客户端模组源码。
+- `Server/`：独立联机服务端源码。
+- `LICENCE.txt`：本项目的 MIT License。
 
-### V0.3.2（GitHub Release）
+客户端模组安装在 SFS 1.6 的 `Mods` 目录中，服务端作为独立程序运行。客户端与服务端需要使用相互匹配的版本。
 
-本次发布将 **V0.3.2.3** 的构建文件原样同步到 GitHub，公开版本号统一写为 **V0.3.2**。
+## 主要功能
 
-**更新内容：**
+- 多人进入同一个 SFS 世界。
+- 玩家和火箭状态同步。
+- 火箭创建、销毁和部件状态同步。
+- 玩家控制权同步。
+- 火箭对接与解除对接同步。
+- 世界时间同步。
+- TCP 与 UDP 网络传输。
+- 服务端权威处理关键多人事件。
+- UDP 不可用时使用 TCP 进行必要的状态同步。
 
-- TCP V3 兼容传输层；
-- 火箭同步采用自适应频率策略；
-- 对接/解除对接改为服务端权威处理；
-- 修复对接口对齐坐标变换；
-- 增加多对接口并发保护；
-- 修复当前客户端线的时间同步协议兼容问题。
+## 使用前提
 
-**说明：**
+- Steam 版 Spaceflight Simulator 1.6。
+- 支持 SFS 1.6 的 Mod Loader。
+- `UITools` 前置模组。
+- 与服务端匹配的客户端模组和服务端程序。
 
-- 上传的附件就是原始的 V0.3.2.3 构建产物，没有重新打包、没有改内容；
-- 旧版本会继续保留，不覆盖。
+## 基本使用方式
 
-- [下载 V0.3.2 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/v0.3.2/SFS-Multiplayer-1.6-NetV3.2.3.zip)
-- [下载 V0.3.2 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/v0.3.2/SFS-Multiplayer-Server.exe)
-- [查看 V0.3.2 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/v0.3.2)
+1. 安装 SFS 1.6、Mod Loader 和 `UITools`。
+2. 将与服务端匹配的客户端模组放入游戏的 `Mods` 目录。
+3. 启动对应版本的独立服务端。
+4. 在游戏的 Multiplayer 菜单中填写服务器地址和端口。
+5. 输入用户名并加入服务器。
 
-Net V2 使用 TCP 通信，并加入心跳、火箭同步流量控制和网络调试信息。
+本项目是独立开发的非官方多人联机工具，与 Spaceflight Simulator 官方团队及其权利人没有隶属、授权或合作关系。
 
-**更新内容：**
+## 开源协议
 
-- 网络传输从 UDP/Lidgren 切换为 TCP；
-- 增加连接握手、心跳和 Ping/Pong；
-- 关键事件使用 FIFO 队列，火箭状态只保留最新值，降低网络阻塞；
-- 受控火箭按 20 Hz、移动火箭按 5 Hz、静止火箭按 3 秒快照同步；
-- 增加 F8 客户端网络调试窗口和服务端调试模式；
-- 增加世界和单枚火箭重新同步能力。
+本项目使用 MIT License。详细条款请查看 [LICENCE.txt](LICENCE.txt)。
 
-- [下载 Net V2 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-1.6-NetV2.zip)
-- [下载 Net V2 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v2/SFS-Multiplayer-Server.exe)
-- [查看 Net V2 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/net-v2)
+## 源码仓库
 
-### v0.1.2 — Net V1（旧版）
+https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer
 
-Net V1 是早期 SFS 1.6 实时联机版本，保留用于兼容和归档。
+## 联系方式
 
-**更新内容：**
+- QQ Group: 679991439
+- Email: maozhongmao@qq.com
 
-- 首个适配 SFS 1.6.00.16 的实时联机发行版；
-- 提供独立 UDP 服务端；
-- 支持世界、火箭、部件状态、时间、聊天和玩家控制同步；
-- 修正客户端与服务端的协议编号、字符串和聊天数据格式；
-- 修正集合反序列化导致多变量火箭无法加入的问题；
-- 修正部件销毁路由、离散事件时序、重复时间戳插值和聊天等待问题。
-
-- [下载 Net V1 客户端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/MultiplayerSFS-1.6.dll)
-- [下载 Net V1 服务端](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/download/net-v1/SFS-Multiplayer-Server.exe)
-- [查看 Net V1 Release](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases/tag/net-v1)
-
-### 安装与启动
-
-1. 安装支持 SFS 1.6 的 Mod Loader 和 `UITools`。
-2. 将对应版本的客户端文件放入游戏的 `Mods` 目录。
-3. 启动对应版本的 `SFS-Multiplayer-Server.exe`。
-4. 在客户端输入服务端地址和端口加入游戏。
-5. 所有玩家必须使用与服务端一致的版本。
-
-V3 及后续开发版本暂未开源。下一个正式版本计划使用 **v1.0.0**。服务器和客户端发行文件请从 [Releases](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases) 下载。
-
+Copyright (c) 2026 STCH Studio
+Developer: maozhongmao / yangchengtong
