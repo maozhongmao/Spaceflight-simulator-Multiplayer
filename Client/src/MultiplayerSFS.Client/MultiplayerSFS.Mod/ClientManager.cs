@@ -66,7 +66,7 @@ public static class ClientManager
 			Debug.LogWarning("Failed to check local solar systems: " + ex.Message);
 		}
 
-		Menu.loading.Open("Connecting to SFS Multiplayer V1.0.6.2...");
+		Menu.loading.Open("Connecting to SFS Multiplayer V1.1.3...");
 		try
 		{
 			Packet_JoinResponse response = await client.ConnectAsync(info.address, info.port,
@@ -324,6 +324,8 @@ public static class ClientManager
 		}
 	}
 
+	public static ControlOwnershipCoordinator ControlOwnership { get; } = new ControlOwnershipCoordinator();
+
 	public static void SendPacket(Packet packet, NetDeliveryMethod method = (NetDeliveryMethod)67)
 	{
 		if (packet == null || client == null || !client.Connected) return;
@@ -332,6 +334,17 @@ public static class ClientManager
 			Debug.Log($"Sending TCP packet of type {packet.Type}.");
 		}
 		client.Send(packet);
+	}
+
+	public static void RequestPlayerControl(int rocketId, ControlRequestOrigin origin = ControlRequestOrigin.UserAction)
+	{
+		if (!multiplayerEnabled.Value || client == null || !client.Connected) return;
+		if (!ControlOwnership.Request(rocketId, origin)) return;
+		SendPacket(new Packet_UpdatePlayerControl
+		{
+			PlayerId = playerId,
+			RocketId = rocketId
+		});
 	}
 
 	public static void RequestTimeScale(double multiplier)
@@ -399,10 +412,34 @@ public static class ClientManager
 		if (LocalManager.players.TryGetValue(packet_UpdatePlayerControl.PlayerId, out var value))
 		{
 			value.controlledRocket.Value = packet_UpdatePlayerControl.RocketId;
+			if (packet_UpdatePlayerControl.PlayerId == playerId)
+			{
+				ControlOwnership.ApplyServerConfirmation(packet_UpdatePlayerControl.RocketId);
+				ApplyLocalPlayerControl(packet_UpdatePlayerControl.RocketId);
+			}
 		}
 		else
 		{
 			Debug.LogError("Missing player while trying to update controlled rocket!");
+		}
+	}
+
+	public static void ApplyConfirmedLocalPlayerControl(int rocketId)
+	{
+		if (ControlOwnership.ConfirmedRocketId != rocketId) return;
+		ApplyLocalPlayerControl(rocketId);
+	}
+
+	private static void ApplyLocalPlayerControl(int rocketId)
+	{
+		if (PlayerController.main == null) return;
+		if (rocketId >= 0 && LocalManager.syncedRockets.TryGetValue(rocketId, out var localRocket) && localRocket.rocket != null)
+		{
+			PlayerController.main.player.Value = localRocket.rocket;
+		}
+		else if (rocketId == -1)
+		{
+			PlayerController.main.player.Value = null;
 		}
 	}
 
@@ -485,9 +522,6 @@ public static class ClientManager
 		Packet_DockTransaction packet = msg.Read<Packet_DockTransaction>();
 		if (!packet.Committed || packet.MergedRocket == null) return;
 
-		bool localControlled = LocalManager.Player != null &&
-			((int)LocalManager.Player.controlledRocket == packet.KeepRocketId ||
-			 (int)LocalManager.Player.controlledRocket == packet.RemoveRocketId);
 		world.rockets.Remove(packet.RemoveRocketId);
 		world.rockets[packet.KeepRocketId] = packet.MergedRocket;
 		LocalManager.DestroyLocalRocket(packet.KeepRocketId);
@@ -500,11 +534,6 @@ public static class ClientManager
 			world.rockets[packet.SecondRocketId] = packet.SecondRocket;
 			LocalManager.DestroyLocalRocket(packet.SecondRocketId);
 			LocalManager.syncedRockets[packet.SecondRocketId] = LocalManager.SpawnLocalRocket(packet.SecondRocket);
-		}
-		if (localControlled)
-		{
-			LocalManager.Player.controlledRocket.Value = -1;
-			if (PlayerController.main != null) PlayerController.main.player.Value = null;
 		}
 		Debug.Log("Server committed docking transaction " + packet.TransactionId +
 			" into rocket " + packet.KeepRocketId + ".");

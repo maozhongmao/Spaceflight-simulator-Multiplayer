@@ -30,6 +30,8 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     private int _sequence;
     private int _nextTimeWarpVoteId;
     private bool _started;
+    private bool _autoClearDebris;
+    private const int AutoClearDebrisMaxParts = DebrisControlRules.DefaultAutoRemoveMaxParts;
 
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
     public int PlayerCount => _players.Count;
@@ -44,8 +46,8 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         settings.Validate(allowEphemeralPort: true);
         _settings = settings;
         _world = world ?? throw new ArgumentNullException(nameof(world));
-        _listener = new TcpListener(IPAddress.Any, settings.Port);
-        _udp = new UdpStateTransport(settings.Port, HandleUdpDatagram);
+        _listener = new TcpListener(settings.BindIpAddress, settings.Port);
+        _udp = new UdpStateTransport(settings.BindIpAddress, settings.Port, HandleUdpDatagram);
     }
 
     public void Start()
@@ -326,6 +328,15 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 }
             }
             SaveIfDue();
+            if (_autoClearDebris)
+            {
+                lock (_worldLock)
+                {
+                    var removed = ClearDebris(AutoClearDebrisMaxParts);
+                    if (removed > 0)
+                        Console.WriteLine($"[cleardebris auto] 已清理 {removed} 枚太空垃圾。");
+                }
+            }
             lock (_worldLock)
             {
                 if (_pendingTimeWarpVote is not null && DateTime.UtcNow >= _pendingTimeWarpVote.ExpiresUtc)
@@ -450,6 +461,25 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         if (packet.Operation != TimeWarpOperation.Request)
             throw new InvalidDataException("Invalid client time-warp operation.");
 
+        if (_players.Count > 1)
+        {
+            if (!TimeWarpControlRules.CanSetPersonal(_players.Count, packet.Multiplier))
+            {
+                SendTimeWarpNotice(player, "多人模式允许的个人时间倍率: 1 到 5。");
+                return;
+            }
+
+            Send(player, PacketType.TimeWarp, new TimeWarpPacket
+            {
+                Operation = TimeWarpOperation.Applied,
+                Multiplier = packet.Multiplier,
+                WorldTime = WorldTime,
+                Approved = true,
+                Message = $"个人时间倍率已设为 {packet.Multiplier:0.##}x。"
+            });
+            return;
+        }
+
         var controllingPlayers = _players.Values.Count(session => session.ControlledRocket != -1);
         if (!TimeWarpControlRules.CanSet(controllingPlayers, packet.Multiplier))
         {
@@ -549,14 +579,22 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         var packet = Read<UpdatePlayerControlPacket>(message);
         if (packet.RocketId != -1)
         {
-            if (!_world.Rockets.ContainsKey(packet.RocketId)) return;
-            if (_players.Values.Any(other => other.Id != player.Id && other.ControlledRocket == packet.RocketId)) return;
+            if (!_world.Rockets.ContainsKey(packet.RocketId) ||
+                _players.Values.Any(other => other.Id != player.Id && other.ControlledRocket == packet.RocketId))
+            {
+                Send(player, PacketType.UpdatePlayerControl, new UpdatePlayerControlPacket
+                {
+                    PlayerId = player.Id,
+                    RocketId = player.ControlledRocket,
+                });
+                return;
+            }
         }
         packet.PlayerId = player.Id;
         player.ControlledRocket = packet.RocketId;
         RefreshAuthorities();
         EnforceTimeScaleControlRule();
-        Broadcast(PacketType.UpdatePlayerControl, packet, player);
+        Broadcast(PacketType.UpdatePlayerControl, packet);
     }
 
     private void HandlePlayerColor(NetIncomingMessage message, TcpSession player)
@@ -636,7 +674,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         packet.ThrottlePercent = Math.Clamp(packet.ThrottlePercent, 0, 1);
         packet.WorldTime = WorldTime;
         rocket.Apply(packet);
-        BroadcastLatest(PacketType.UpdateRocketSecondary, packet, packet.RocketId, player);
+        Broadcast(PacketType.UpdateRocketSecondary, packet, player);
     }
 
     private void HandleDestroyPart(NetIncomingMessage message, TcpSession player)
@@ -770,13 +808,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         var secondId = NextRocketId();
         _world.Rockets[packet.KeepRocketId] = firstRocket;
         _world.Rockets[secondId] = secondRocket;
-
-        foreach (var connected in _players.Values)
-        {
-            if (connected.ControlledRocket != packet.KeepRocketId) continue;
-            connected.ControlledRocket = -1;
-            Broadcast(PacketType.UpdatePlayerControl, new UpdatePlayerControlPacket { PlayerId = connected.Id, RocketId = -1 });
-        }
+        ClearInvalidControlAssignments();
 
         packet.Committed = true;
         packet.WorldTime = WorldTime;
@@ -946,19 +978,28 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         session.Signal();
     }
 
+    private void ClearInvalidControlAssignments()
+    {
+        foreach (var player in _players.Values)
+        {
+            if (player.ControlledRocket >= 0 && !_world.Rockets.ContainsKey(player.ControlledRocket))
+                player.ControlledRocket = -1;
+        }
+    }
+
     private void RefreshAuthorities()
     {
         foreach (var player in _players.Values) player.UpdateAuthority.Clear();
-        var connected = _players.Values.OrderBy(player => player.Id).ToList();
-        if (connected.Count == 0) return;
-        var roundRobin = 0;
-        foreach (var rocketId in _world.Rockets.Keys.OrderBy(id => id))
+        var participants = _players.Values
+            .Select(player => new AuthorityParticipant(player.Id, player.ControlledRocket))
+            .ToArray();
+        var assignments = AuthorityAllocationPolicy.Allocate(_world.Rockets.Keys, participants);
+        foreach (var assignment in assignments)
         {
-            var owner = connected.FirstOrDefault(player => player.ControlledRocket == rocketId)
-                ?? connected[roundRobin++ % connected.Count];
-            owner.UpdateAuthority.Add(rocketId);
+            if (_players.TryGetValue(assignment.Value, out var owner))
+                owner.UpdateAuthority.Add(assignment.Key);
         }
-        foreach (var player in connected)
+        foreach (var player in _players.Values)
             Send(player, PacketType.UpdatePlayerAuthority,
                 new UpdatePlayerAuthorityPacket { RocketIds = new HashSet<int>(player.UpdateAuthority) });
         EnforceTimeScaleControlRule();
@@ -1086,11 +1127,23 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         if (line.Length == 0) return new ServerCommandResult(false, string.Empty);
         var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var command = parts[0].ToLowerInvariant();
+        if (command == "time")
+            command = parts.Length == 2 && string.Equals(parts[1], "off", StringComparison.OrdinalIgnoreCase)
+                ? "stoptimewarp" : "timewarp";
+        else if (command == "debris")
+            command = "cleardebris";
+        else if (command == "world" && parts.Length == 2)
+            command = parts[1].ToLowerInvariant() switch
+            {
+                "save" => "save",
+                "sync" => "resync",
+                _ => "world"
+            };
         switch (command)
         {
             case "help":
                 return new ServerCommandResult(false,
-                    "命令: help, status, players, say <消息>, timewarp <1|5|25|100|500|2500>, stoptimewarp, cleardebris [最大部件数], save, resync, kick <ID|名字>, stop");
+                    "常用: status, players, say <消息>, time <倍率|off>, debris [auto|最大部件数], world <save|sync>, kick <ID|名字>, stop。兼容旧命令: timewarp, stoptimewarp, cleardebris, save, resync。");
             case "status":
                 return new ServerCommandResult(false,
                     $"玩家={PlayerCount} 火箭={RocketCount()} 世界时间={WorldTime:F1} 倍率={TimeScale:0.##}x");
@@ -1115,6 +1168,11 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 return new ServerCommandResult(false, "时间倍率已恢复为 1x。");
             case "cleardebris":
                 var maxParts = 3;
+                if (parts.Length == 2 && string.Equals(parts[1], "auto", StringComparison.OrdinalIgnoreCase))
+                {
+                    _autoClearDebris = !_autoClearDebris;
+                    return new ServerCommandResult(false, $"cleardebris auto 已{(_autoClearDebris ? "开启" : "关闭")}，自动阈值 {AutoClearDebrisMaxParts} 个部件。");
+                }
                 if (parts.Length > 2 || (parts.Length == 2 && (!int.TryParse(parts[1], out maxParts) || maxParts < 0)))
                     return new ServerCommandResult(false, "用法: cleardebris [最大部件数]（默认 3）");
                 var removed = ClearDebris(maxParts);

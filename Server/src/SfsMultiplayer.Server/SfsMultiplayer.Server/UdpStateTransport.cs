@@ -13,9 +13,9 @@ internal sealed class UdpStateTransport : IDisposable
     private readonly Func<string, IPEndPoint, byte[], bool> receive;
     private CancellationTokenSource? cancellation;
 
-    public UdpStateTransport(int port, Func<string, IPEndPoint, byte[], bool> receive)
+    public UdpStateTransport(IPAddress bindAddress, int port, Func<string, IPEndPoint, byte[], bool> receive)
     {
-        socket = new UdpClient(new IPEndPoint(IPAddress.Any, port));
+        socket = new UdpClient(new IPEndPoint(bindAddress, port));
         this.receive = receive;
     }
 

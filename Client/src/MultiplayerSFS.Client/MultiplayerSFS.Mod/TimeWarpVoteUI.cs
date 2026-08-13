@@ -8,7 +8,7 @@ namespace MultiplayerSFS.Mod;
 
 public sealed class TimeWarpVoteUI : MonoBehaviour
 {
-	private static readonly double[] Multipliers = { 1, 5, 25, 100, 500, 2500 };
+	private static readonly double[] Multipliers = { 1, 2, 3, 4, 5 };
 	private static TimeWarpVoteUI instance;
 	private Rect windowRect = new Rect(500, 40, 390, 390);
 	private bool visible;
@@ -17,7 +17,7 @@ public sealed class TimeWarpVoteUI : MonoBehaviour
 	private double pendingMultiplier = 1;
 	private DateTime expiresUtc;
 	private bool responded;
-	private string status = "按 F7 打开时间加速投票。";
+	private string status = "按 F7 打开个人时间倍率。";
 
 	public static void Create()
 	{
@@ -96,7 +96,7 @@ public sealed class TimeWarpVoteUI : MonoBehaviour
 		GUILayout.Label("当前倍率：" + (ClientManager.world == null ? "1" : ClientManager.world.timeScale.ToString("0.##")) + "x");
 		GUILayout.Label(status ?? "");
 		GUILayout.Space(8);
-		GUILayout.Label("申请时间倍率（需要所有在线玩家同意）：");
+		GUILayout.Label("个人时间倍率（多人模式立即生效，范围 1x~5x）：");
 		GUILayout.BeginHorizontal();
 		for (var i = 0; i < Multipliers.Length; i++)
 		{
@@ -108,7 +108,7 @@ public sealed class TimeWarpVoteUI : MonoBehaviour
 					Operation = TimeWarpOperation.Request,
 					Multiplier = multiplier,
 				});
-				status = "已申请 " + multiplier.ToString("0.##") + "x，等待全员投票。";
+				status = "个人时间倍率已申请：" + multiplier.ToString("0.##") + "x。";
 			}
 			if (i == 2) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); }
 		}

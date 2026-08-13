@@ -64,7 +64,10 @@ public class WorldEventSyncing
 				dictionary.Add(rocket, num);
 			}
 			Rocket rocket2 = rockets.FirstOrDefault((Rocket r) => r.hasControl.Value) ?? ((rockets.Length != 0) ? rockets[0] : null);
-			LocalManager.unsyncedToControl = ((rocket2 != null && dictionary.TryGetValue(rocket2, out var value)) ? value : (-1));
+			if (rocket2 != null && dictionary.TryGetValue(rocket2, out var value))
+			{
+				LocalManager.RequestControlForLocalRocket(value);
+			}
 		}
 	}
 
@@ -179,7 +182,7 @@ public class WorldEventSyncing
 			syncedRocketID = LocalManager.GetUnsyncedRocketID(rocket2);
 			if (syncedRocketID >= 0)
 			{
-				LocalManager.unsyncedToControl = syncedRocketID;
+				LocalManager.RequestControlForLocalRocket(syncedRocketID);
 			}
 			else
 			{

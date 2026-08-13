@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Lidgren.Network;
 using MultiplayerSFS.Common;
 using MultiplayerSFS.Mod;
+using MultiplayerSFS.Mod.Patches;
 using SFS.WorldBase;
 using UnityEngine;
 
@@ -32,8 +33,12 @@ internal static class Program
         Run("Interpolation correction keeps an already-timed target in place", CorrectionDoesNotAdvanceTarget);
         Run("TCP frames survive stream coalescing", TcpFramesSurviveStreamCoalescing);
         Run("TCP send queue keeps latest rocket state", TcpSendQueueKeepsLatestRocketState);
+        Run("Authority handoff primes state before physics", AuthorityHandoffPrimesBeforePhysics);
+        Run("Rocket input uses reliable transport policy", RocketInputUsesReliableTransport);
         Run("Rocket sync policy lowers idle traffic", RocketSyncPolicyLowersIdleTraffic);
         Run("Time-warp vote packet matches server wire format", TimeWarpPacketMatchesServerWireFormat);
+        Run("Multiplayer split follows native selection", MultiplayerSplitFollowsNativeSelection);
+        Run("Control coordinator applies only server confirmation", ControlCoordinatorUsesServerConfirmation);
 
         Console.WriteLine(failures == 0 ? "ALL CLIENT REGRESSION TESTS PASSED" : $"FAILED: {failures}");
         Environment.ExitCode = failures == 0 ? 0 : 1;
@@ -201,6 +206,29 @@ internal static class Program
         EqualBytes(server, client, "time-warp bytes");
     }
 
+    private static void MultiplayerSplitFollowsNativeSelection()
+    {
+        True(DivertRocketSwitching.Rocket_SetPlayerToBestControllable.ShouldRequestNativeSelection(true, 12, 7),
+            "native split selection must request the selected rocket");
+        False(DivertRocketSwitching.Rocket_SetPlayerToBestControllable.ShouldRequestNativeSelection(true, 7, 7),
+            "native split selection must not request the current rocket");
+        False(DivertRocketSwitching.Rocket_SetPlayerToBestControllable.ShouldRequestNativeSelection(false, 12, 7),
+            "single-player selection must not request network control");
+    }
+
+    private static void ControlCoordinatorUsesServerConfirmation()
+    {
+        var coordinator = new ControlOwnershipCoordinator();
+        True(coordinator.Request(12, ControlRequestOrigin.NativeSelection), "native selection request accepted");
+        Equal(-1, coordinator.ConfirmedRocketId, "request must not confirm locally");
+        Equal(12, coordinator.PendingRocketId, "pending native selection");
+        coordinator.ApplyServerConfirmation(7);
+        Equal(7, coordinator.ConfirmedRocketId, "server confirmation wins");
+        Equal(-1, coordinator.PendingRocketId, "pending request cleared");
+        False(coordinator.CanApplyNativeSelection(12), "unconfirmed native selection cannot apply");
+        True(coordinator.CanApplyNativeSelection(7), "confirmed native selection can apply");
+    }
+
     private static void DestroyPartRoutesByRocketId()
     {
         var packet = new Packet_DestroyPart { RocketId = 41, PartId = 7, WorldTime = 10 };
@@ -267,6 +295,22 @@ internal static class Program
         Equal(50, RocketSyncPolicy.GetIntervalMilliseconds(true, false), "controlled 20Hz");
         Equal(200, RocketSyncPolicy.GetIntervalMilliseconds(false, true), "uncontrolled moving 5Hz");
         Equal(3000, RocketSyncPolicy.GetIntervalMilliseconds(false, false), "idle snapshot");
+    }
+
+    private static void AuthorityHandoffPrimesBeforePhysics()
+    {
+        False(Interpolator.ShouldPrimeAuthorityState(false, false), "non-authority remains non-authority");
+        True(Interpolator.ShouldPrimeAuthorityState(false, true), "authority gain primes state");
+        False(Interpolator.ShouldPrimeAuthorityState(true, true), "existing authority does not re-prime");
+        False(Interpolator.ShouldPrimeAuthorityState(true, false), "authority loss does not prime");
+    }
+
+    private static void RocketInputUsesReliableTransport()
+    {
+        True(TcpClientTransport.ShouldSendOverUdp(new Packet_UpdateRocketPrimary()), "position may use UDP");
+        False(TcpClientTransport.ShouldSendOverUdp(new Packet_UpdateRocketSecondary()), "input must not use UDP");
+        True(TcpClientTransport.ShouldCoalesceState(new Packet_UpdateRocketPrimary()), "position may coalesce");
+        False(TcpClientTransport.ShouldCoalesceState(new Packet_UpdateRocketSecondary()), "input must not coalesce");
     }
 
     private static void Run(string name, Action test)

@@ -21,15 +21,15 @@ public class Main : ModLoader.Mod
 
 	public override string ModNameID => "multiplayersfs";
 
-	public override string DisplayName => "SFS Multiplayer V1.0.6.2";
+	public override string DisplayName => "SFS Multiplayer V1.1.3";
 
 	public override string Author => "Astro The Rabbit, VerdiX";
 
 	public override string MinimumGameVersionNecessary => "1.6.00.16";
 
-	public override string ModVersion => "1.0.6.2";
+	public override string ModVersion => "1.1.3";
 
-	public override string Description => "SFS Multiplayer V1.0.6.2";
+	public override string Description => "SFS Multiplayer V1.1.3";
 
 	public override Dictionary<string, string> Dependencies { get; } = new Dictionary<string, string> { { "UITools", "1.1.5" } };
 
@@ -53,6 +53,8 @@ public class Main : ModLoader.Mod
 			if ((bool)ClientManager.multiplayerEnabled)
 			{
 				LocalManager.Player.controlledRocket.Value = -1;
+				LocalManager.unsyncedToControl = -1;
+				LocalManager.pendingControlLocalIds.Clear();
 				ClientManager.SendPacket(new Packet_UpdatePlayerControl
 				{
 					PlayerId = ClientManager.playerId,

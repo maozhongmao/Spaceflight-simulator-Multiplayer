@@ -73,6 +73,52 @@ public sealed class ServerCommandAndTimeWarpTests
         Assert.Contains(2, world.Rockets.Keys);
     }
 
+    [Theory]
+    [InlineData(false, 1, true)]
+    [InlineData(false, 3, true)]
+    [InlineData(false, 5, true)]
+    [InlineData(false, 6, false)]
+    [InlineData(true, 1, false)]
+    public void AutoDebrisRuleRejectsSmallNonLaunchRocket(bool forLaunch, int partCount, bool expected)
+    {
+        Assert.Equal(expected, DebrisControlRules.ShouldAutoRemove(forLaunch, partCount));
+    }
+
+    [Fact]
+    public void ShortTimeCommandCanForceAllowedTimeWarp()
+    {
+        var server = NewServer(new WorldSnapshot { WorldTime = 100 });
+
+        var result = server.ExecuteCommand("time 25");
+
+        Assert.Contains("25", result.Message);
+        Assert.Equal(25, server.TimeScale);
+    }
+
+    [Fact]
+    public void ShortTimeOffCommandRestoresNormalRate()
+    {
+        var server = NewServer(new WorldSnapshot { WorldTime = 100 });
+        server.ExecuteCommand("time 25");
+
+        var result = server.ExecuteCommand("time off");
+
+        Assert.Contains("1x", result.Message);
+        Assert.Equal(1, server.TimeScale);
+    }
+
+    [Fact]
+    public void ShortDebrisCommandUsesExistingCleanup()
+    {
+        var world = new WorldSnapshot { WorldTime = 100 };
+        world.Rockets[1] = RocketWithParts("tiny debris", 2);
+        var server = NewServer(world);
+
+        server.ExecuteCommand("debris 3");
+
+        Assert.DoesNotContain(1, world.Rockets.Keys);
+    }
+
     private static TcpMultiplayerServer NewServer(WorldSnapshot world) => new(new ServerSettings
     {
         Port = 0,

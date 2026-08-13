@@ -31,7 +31,7 @@ public sealed class NetworkDebugOverlay : MonoBehaviour
 	private void OnGUI()
 	{
 		if (!visible) return;
-		windowRect = GUI.Window(864217, windowRect, DrawWindow, "SFS Multiplayer V1.0.6.2 - Network Debug");
+		windowRect = GUI.Window(864217, windowRect, DrawWindow, "SFS Multiplayer V1.1.3 - Network Debug");
 	}
 
 	private void DrawWindow(int id)
@@ -53,7 +53,7 @@ public sealed class NetworkDebugOverlay : MonoBehaviour
 		}
 
 		NetworkAdaptiveProfile profile = transport.AdaptiveProfile;
-		GUILayout.Label("TCP + NoDelay / V1.0.6.2", labelStyle);
+		GUILayout.Label("TCP + NoDelay / V1.1.3", labelStyle);
 		GUILayout.Label(string.Format("网络档位：{0}    插值缓冲：{1:F0} ms", profile.Quality,
 			profile.InterpolationDelaySeconds * 1000.0), labelStyle);
 		GUILayout.Label(string.Format("发送周期：操控 {0} ms / 运动 {1} ms / 静止 {2} ms",
@@ -92,7 +92,7 @@ public sealed class NetworkDebugOverlay : MonoBehaviour
 	private static string BuildDiagnostics(TcpClientTransport transport)
 	{
 		return string.Format(
-			"SFS Multiplayer V1.0.6.2\nConnected={0}\nServer={1}\nRTT={2:F0}ms\nJitter={3:F0}ms\nLastReceive={4:F1}s\nQueue={5}\nSent={6} bytes/{7} frames\nReceived={8} bytes/{9} frames\nOverwritten={10}\nLastPacket={11}\nDisconnect={12}",
+			"SFS Multiplayer V1.1.3\nConnected={0}\nServer={1}\nRTT={2:F0}ms\nJitter={3:F0}ms\nLastReceive={4:F1}s\nQueue={5}\nSent={6} bytes/{7} frames\nReceived={8} bytes/{9} frames\nOverwritten={10}\nLastPacket={11}\nDisconnect={12}",
 			transport.Connected, transport.RemoteAddress, transport.RoundTripMs, transport.JitterMs,
 			transport.SecondsSinceReceive, transport.QueueCount, transport.SentBytes, transport.SentFrames,
 			transport.ReceivedBytes, transport.ReceivedFrames, transport.OverwrittenStates,

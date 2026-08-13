@@ -415,7 +415,7 @@ public sealed class TcpClientTransport : IDisposable
 	public void Send(Packet packet)
 	{
 		if (!Connected || packet == null) return;
-		if ((packet is Packet_UpdateRocketPrimary || packet is Packet_UpdateRocketSecondary) && udp != null && udp.Bound)
+		if (ShouldSendOverUdp(packet) && udp != null && udp.Bound)
 		{
 			udp.SendPacket(packet);
 			return;
@@ -423,8 +423,18 @@ public sealed class TcpClientTransport : IDisposable
 		NetPayload payload = NetPayloadCodec.Serialize(packet, true);
 		TcpFrame frame = new TcpFrame(TcpFrameKind.Packet, Interlocked.Increment(ref sequence), payload.Data, payload.BitLength);
 		long key;
-		if (TryGetLatestStateKey(packet, out key)) outgoing.EnqueueLatest(key, frame);
+		if (ShouldCoalesceState(packet) && TryGetLatestStateKey(packet, out key)) outgoing.EnqueueLatest(key, frame);
 		else outgoing.EnqueueCritical(frame);
+	}
+
+	public static bool ShouldSendOverUdp(Packet packet)
+	{
+		return packet is Packet_UpdateRocketPrimary;
+	}
+
+	public static bool ShouldCoalesceState(Packet packet)
+	{
+		return packet is Packet_UpdateRocketPrimary;
 	}
 
 	public void RequestWorldSnapshot()

@@ -28,6 +28,8 @@ public static class LocalManager
 
 	public static int unsyncedToControl = -1;
 
+	public static HashSet<int> pendingControlLocalIds = new HashSet<int>();
+
 	public const DestructionReason CustomDestructionReason = (DestructionReason)4;
 
 	public static DestructionReason TrueDestructionReason = DestructionReason.Intentional;
@@ -39,6 +41,8 @@ public static class LocalManager
 	private static readonly Dictionary<ResourceModule, double> prevResourcePercents = new Dictionary<ResourceModule, double>();
 
 	private static readonly Dictionary<int, DateTime> lastRocketStateSend = new Dictionary<int, DateTime>();
+
+	private static readonly Dictionary<int, DateTime> lastRocketInputSend = new Dictionary<int, DateTime>();
 
 	private static Queue mainThreadActions = new Queue();
 
@@ -69,6 +73,7 @@ public static class LocalManager
 		unsyncedRockets = new Dictionary<int, LocalRocket>();
 		updateAuthority = new HashSet<int>();
 		unsyncedToControl = -1;
+		pendingControlLocalIds.Clear();
 		updateTimer = new Timer
 		{
 			Interval = updateRocketsPeriod,
@@ -114,6 +119,7 @@ public static class LocalManager
 		updateTimer?.Close();
 		updateTimer = null;
 		lastRocketStateSend.Clear();
+		lastRocketInputSend.Clear();
 		prevResourcePercents.Clear();
 		lock (mainThreadActionsLock)
 		{
@@ -162,15 +168,34 @@ public static class LocalManager
 				prevResourcePercents.Remove(item);
 			}
 		}
+		var staleRocketIds = new List<int>();
 		foreach (int item2 in updateAuthority)
 		{
-			if (syncedRockets.TryGetValue(item2, out var localRocket))
+			if (!syncedRockets.TryGetValue(item2, out var localRocket))
 			{
-				Rocket rocket = localRocket.rocket;
-				if ((object)rocket != null)
-				{
-					bool controlled = players != null && players.Values.Any(player => player.controlledRocket.Value == item2);
+				staleRocketIds.Add(item2);
+				continue;
+			}
+			Rocket rocket = localRocket.rocket;
+			if (rocket == null || rocket.rb2d == null || rocket.location == null)
+			{
+				staleRocketIds.Add(item2);
+				continue;
+			}
+			bool controlled = players != null && players.Values.Any(player => player.controlledRocket.Value == item2);
 					bool moving = rocket.location.Value.velocity.sqrMagnitude > 0.01 || Math.Abs(rocket.rb2d.angularVelocity) > 0.1f;
+					if (controlled || moving)
+					{
+						int inputInterval = adaptive.ControlledIntervalMilliseconds;
+						if (!lastRocketInputSend.TryGetValue(item2, out DateTime lastInput) ||
+							(now - lastInput).TotalMilliseconds >= inputInterval)
+						{
+							lastRocketInputSend[item2] = now;
+							Packet_UpdateRocketSecondary packet2 = rocket.ToUpdatePacketSecondary(item2);
+							if (ClientManager.world.rockets.TryGetValue(item2, out var state)) state.UpdateRocketSecondary(packet2);
+							ClientManager.SendPacket(packet2, (NetDeliveryMethod)67);
+						}
+					}
 					int interval = RocketSyncPolicy.GetIntervalMilliseconds(controlled, moving, adaptive);
 					if (lastRocketStateSend.TryGetValue(item2, out DateTime lastSend) &&
 						(now - lastSend).TotalMilliseconds < interval)
@@ -188,12 +213,6 @@ public static class LocalManager
 						Debug.LogError("Missing rocket state while trying to send update packets!");
 					}
 					ClientManager.SendPacket(packet, (NetDeliveryMethod)67);
-					if (controlled || moving)
-					{
-						Packet_UpdateRocketSecondary packet2 = rocket.ToUpdatePacketSecondary(item2);
-						if (ClientManager.world.rockets.TryGetValue(item2, out var state)) state.UpdateRocketSecondary(packet2);
-						ClientManager.SendPacket(packet2, (NetDeliveryMethod)67);
-					}
 					if (!rocket.physics.PhysicsMode)
 					{
 						continue;
@@ -203,26 +222,25 @@ public static class LocalManager
 					{
 						if (prevResourcePercents.TryGetValue(resourceModule, out var value2) && value2 != resourceModule.resourcePercent.Value)
 						{
-							ClientManager.SendPacket(new Packet_UpdatePart_ResourceModule
-							{
-								WorldTime = ClientManager.world.WorldTime,
-								RocketId = item2,
-								PartIds = (from r in resourceModule.children
-									select r.GetComponentInParent<Part>() into p
-									select localRocket.GetPartID(p)).ToHashSet(),
-								ResourcePercent = resourceModule.resourcePercent.Value
-							}, (NetDeliveryMethod)67);
+					ClientManager.SendPacket(new Packet_UpdatePart_ResourceModule
+					{
+							WorldTime = ClientManager.world.WorldTime,
+							RocketId = item2,
+						PartIds = resourceModule.children
+							.Select(r => r.GetComponentInParent<Part>())
+							.Where(p => p != null)
+							.Select(localRocket.GetPartID)
+							.Where(id => id >= 0).ToHashSet(),
+						ResourcePercent = resourceModule.resourcePercent.Value
+					}, (NetDeliveryMethod)67);
 						}
 						prevResourcePercents[resourceModule] = resourceModule.resourcePercent.Value;
 					}
 					continue;
 				}
-			}
-			Debug.LogError("Missing local rocket while trying to send update packets!");
-		}
-	}
+				}
 
-	public static int GetSyncedRocketID(Rocket rocket)
+				public static int GetSyncedRocketID(Rocket rocket)
 	{
 		try
 		{
@@ -331,6 +349,7 @@ public static class LocalManager
 		}
 		syncedRockets.Remove(id);
 		lastRocketStateSend.Remove(id);
+		lastRocketInputSend.Remove(id);
 	}
 
 	public static void OnLoadWorld()
@@ -354,6 +373,19 @@ public static class LocalManager
 		return new NetLocation(loc.position, loc.velocity, loc.planet.codeName);
 	}
 
+	public static void RequestControlForLocalRocket(int localId)
+	{
+		pendingControlLocalIds.Add(localId);
+		unsyncedToControl = localId;
+	}
+
+	public static bool ConsumePendingControlLocalId(int localId)
+	{
+		bool pending = pendingControlLocalIds.Remove(localId);
+		if (unsyncedToControl == localId) unsyncedToControl = -1;
+		return pending;
+	}
+
 	public static void OnPacket_CreateRocket(Packet_CreateRocket packet)
 	{
 		if (syncedRockets.TryGetValue(packet.GlobalId, out var _))
@@ -370,7 +402,7 @@ public static class LocalManager
 			}
 			if ((int)Player.controlledRocket == packet.GlobalId)
 			{
-				PlayerController.main.player.Value = localRocket.rocket;
+				ClientManager.ApplyConfirmedLocalPlayerControl(packet.GlobalId);
 			}
 			return;
 		}
@@ -379,12 +411,9 @@ public static class LocalManager
 		{
 			unsyncedRockets.Remove(packet.LocalId);
 			syncedRockets.Add(packet.GlobalId, value2);
-			if (packet.LocalId == unsyncedToControl)
+			if (packet.LocalId >= 0 && ConsumePendingControlLocalId(packet.LocalId))
 			{
-				unsyncedToControl = -1;
-				PlayerController.main.SmoothChangePlayer(value2.rocket);
-				GameCamerasManager.main.InstantlyRotateCamera();
-				Menu.loading.Close();
+				ClientManager.RequestPlayerControl(packet.GlobalId, ControlRequestOrigin.NativeSelection);
 			}
 		}
 		else if (GameManager.main != null)
@@ -403,7 +432,7 @@ public static class LocalManager
 			}
 			if ((int)Player.controlledRocket == packet.GlobalId)
 			{
-				PlayerController.main.player.Value = localRocket2.rocket;
+				ClientManager.ApplyConfirmedLocalPlayerControl(packet.GlobalId);
 			}
 		}
 	}

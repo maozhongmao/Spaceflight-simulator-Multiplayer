@@ -20,19 +20,14 @@ internal static class ServerProgram
             }
 
             var baseDirectory = AppContext.BaseDirectory;
-            var settings = new ServerSettings
-            {
-                StatePath = Path.Combine(baseDirectory, "data", "server-state.json"),
-            };
-            var pathBase = baseDirectory;
-            if (options.ConfigPath is not null)
-            {
-                var configPath = Path.GetFullPath(options.ConfigPath);
-                settings = ServerSettings.Load(configPath);
-                pathBase = Path.GetDirectoryName(configPath) ?? baseDirectory;
-                if (string.IsNullOrWhiteSpace(settings.StatePath))
-                    settings.StatePath = Path.Combine(pathBase, "data", "server-state.json");
-            }
+            var defaultConfigPath = Path.Combine(baseDirectory, "server.yml");
+            var configPath = options.ConfigPath is null
+                ? ServerSettings.EnsureDefaultYaml(defaultConfigPath)
+                : Path.GetFullPath(options.ConfigPath);
+            var settings = ServerSettings.Load(configPath);
+            var pathBase = Path.GetDirectoryName(configPath) ?? baseDirectory;
+            if (string.IsNullOrWhiteSpace(settings.StatePath))
+                settings.StatePath = Path.Combine(pathBase, "data", "server-state.json");
 
             ApplyOverrides(settings, options);
             settings.WorldPath = ResolveOptionalPath(pathBase, settings.WorldPath);
@@ -65,7 +60,7 @@ internal static class ServerProgram
                 await using (var server = new TcpMultiplayerServer(settings, world))
                 {
                     server.Start();
-                    Console.WriteLine($"[启动] TCP+UDP Network V1.0.6.2 0.0.0.0:{server.Port}，最多 {settings.MaxConnections} 人。");
+                    Console.WriteLine($"[启动] TCP+UDP Network V1.1.3 {settings.BindAddress}:{server.Port}，最多 {settings.MaxConnections} 人。");
                     if (settings.Debug) Console.WriteLine("[调试] 已开启。");
                     Console.WriteLine("[指令] 输入 help 查看服务端命令，输入 stop 安全保存并退出。");
                     StartConsoleCommandThread(server, cancellation);

@@ -1,5 +1,5 @@
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
@@ -32,34 +32,39 @@ public class DivertRocketSwitching
 	[HarmonyPatch(typeof(Rocket), "SetPlayerToBestControllable")]
 	public static class Rocket_SetPlayerToBestControllable
 	{
-		public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
+		public static bool ShouldRequestNativeSelection(bool multiplayerEnabled, int selectedRocketId, int currentRocketId)
 		{
-			Label label_CheckSwitch = generator.DefineLabel();
-			foreach (CodeInstruction code in instructions)
+			return multiplayerEnabled && selectedRocketId >= 0 && selectedRocketId != currentRocketId;
+		}
+
+		public static void Postfix(Rocket[] rockets)
+		{
+			if (!(bool)ClientManager.multiplayerEnabled || rockets == null || PlayerController.main == null)
 			{
-				if (code.opcode == OpCodes.Ret)
+				return;
+			}
+			Rocket selected = PlayerController.main.player.Value as Rocket;
+			if (selected == null || Array.IndexOf(rockets, selected) < 0)
+			{
+				return;
+			}
+			int syncedId = LocalManager.GetSyncedRocketID(selected);
+			if (syncedId >= 0)
+			{
+				int currentId = LocalManager.Player == null ? -1 : LocalManager.Player.controlledRocket.Value;
+				if (ShouldRequestNativeSelection(true, syncedId, currentId))
 				{
-					yield return code.WithLabels(label_CheckSwitch);
-					continue;
+					ClientManager.RequestPlayerControl(syncedId, ControlRequestOrigin.NativeSelection);
 				}
-				if (code.opcode == OpCodes.Brfalse_S)
-				{
-					yield return new CodeInstruction(OpCodes.Ldloc_0);
-					yield return CodeInstruction.Call(typeof(Rocket_SetPlayerToBestControllable), "CheckSwitch");
-					yield return new CodeInstruction(OpCodes.Brfalse, label_CheckSwitch);
-				}
-				yield return code;
+				return;
+			}
+			int localId = LocalManager.GetUnsyncedRocketID(selected);
+			if (localId >= 0)
+			{
+				LocalManager.RequestControlForLocalRocket(localId);
 			}
 		}
 
-		public static bool CheckSwitch(List<Rocket> rockets)
-		{
-			if (rockets[0] != null)
-			{
-				return TrySwitchPlayer(rockets[0]);
-			}
-			return false;
-		}
 	}
 
 	[HarmonyPatch(typeof(GameSelector), "SwitchTo")]
@@ -100,22 +105,15 @@ public class DivertRocketSwitching
 				int id = LocalManager.GetSyncedRocketID(rocket);
 				if (id >= 0)
 				{
-					if (LocalManager.players.Any((KeyValuePair<int, LocalPlayer> kvp) => kvp.Key != ClientManager.playerId && (int)kvp.Value.controlledRocket == id))
-					{
-						return false;
-					}
-					LocalManager.Player.controlledRocket.Value = id;
-					ClientManager.SendPacket(new Packet_UpdatePlayerControl
-					{
-						PlayerId = ClientManager.playerId,
-						RocketId = id
-					}, (NetDeliveryMethod)67);
-					return true;
+					if (!Rocket_SetPlayerToBestControllable.ShouldRequestNativeSelection(
+						(bool)ClientManager.multiplayerEnabled, id, LocalManager.Player.controlledRocket.Value)) return true;
+					ClientManager.RequestPlayerControl(id);
+					return false;
 				}
 				id = LocalManager.GetUnsyncedRocketID(rocket);
 				if (id >= 0)
 				{
-					LocalManager.unsyncedToControl = id;
+					LocalManager.RequestControlForLocalRocket(id);
 					return false;
 				}
 				Debug.LogError("`TrySwitchPlayer`: `player` isn't registered!");

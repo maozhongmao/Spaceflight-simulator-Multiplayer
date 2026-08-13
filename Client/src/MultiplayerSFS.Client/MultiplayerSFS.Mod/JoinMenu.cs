@@ -20,7 +20,7 @@ public class JoinMenu : BasicMenu
 	private static readonly Vector2Int windowSize = new Vector2Int(1000, 820);
 	private const string Statement = @"STCH Studio Multiplayer Mod and Relay Server Statement
 
-Version: V1.0    Updated: July 27, 2026
+Version: V1.1.3    Updated: August 4, 2026
 
 STCH Studio, independently established and operated by the developer known as maozhongmao / yangchengtong (""STCH Studio"" or ""the Developer""), hereby states:
 
@@ -93,8 +93,13 @@ This multiplayer mod is released under the MIT License:
 5. This mod is an independently rewritten implementation, not a copy or fork of any existing SFS multiplayer project. During reference and learning work, the Developer found prior reference projects unable to meet the required functionality and completely reworked the network transport, synchronization strategy, event handling, and architecture through multiple independent iterations: Net V1, TCP Net V2, and TCP V3. Any use, modification, or distribution must comply with the MIT License. STCH Studio retains independent copyright in its added code.
 
 STCH Studio (Developer: maozhongmao / yangchengtong)
-Contact: maozhongmao@qq.com
-Published: July 27, 2026";
+Private email: maozhongmao@qq.com / yangchengtong@stch.de5.net
+Studio email: stch-stuido@stch.de5.net
+Published: August 11, 2026";
+	private const string StatementAcceptedKey = "multiplayersfs.statement.accepted";
+	private const string StatementVersion = "2026-08-11";
+	private const string LastServerKey = "multiplayersfs.last.server";
+	private const string LastUsernameKey = "multiplayersfs.last.username";
 
 	public JoinInfo joinInfo = new JoinInfo();
 	private Color defaultTextInputColor;
@@ -116,6 +121,7 @@ Published: July 27, 2026";
 
 	public override void OnOpen()
 	{
+		LoadLastConnection();
 		if (ScreenManager.main.CurrentScreen != this)
 		{
 			ScreenManager.main.OpenScreen(() => this);
@@ -124,6 +130,23 @@ Published: July 27, 2026";
 			window = Builder.CreateWindow(windowHolder.transform, windowID, windowSize.x, windowSize.y, 0, windowSize.y / 2, draggable: false, savePosition: false, 1f, "Multiplayer SFS - Join Menu");
 			CreateUI();
 		}
+	}
+
+	private void LoadLastConnection()
+	{
+		string endpoint = PlayerPrefs.GetString(LastServerKey, string.Empty);
+		string username = PlayerPrefs.GetString(LastUsernameKey, string.Empty);
+		if (!string.IsNullOrWhiteSpace(endpoint))
+		{
+			int separator = endpoint.LastIndexOf(':');
+			if (separator > 0 && int.TryParse(endpoint.Substring(separator + 1), out int port) && port > 0 && port <= 65535 &&
+				IPAddress.TryParse(endpoint.Substring(0, separator), out IPAddress address))
+			{
+				joinInfo.address = address;
+				joinInfo.port = port;
+			}
+		}
+		if (!string.IsNullOrWhiteSpace(username)) joinInfo.username = username;
 	}
 
 	public override void Close()
@@ -138,7 +161,7 @@ Published: July 27, 2026";
 
 	private void CreateUI()
 	{
-		statementRead = false;
+		statementRead = HasAcceptedStatement();
 		statementLayoutFrames = 0;
 		window.CreateLayoutGroup(SFS.UI.ModGUI.Type.Vertical, TextAnchor.MiddleCenter, 12f, new RectOffset(5, 5, 5, 5));
 		Container labels = Builder.CreateContainer(window);
@@ -164,7 +187,7 @@ Published: July 27, 2026";
 
 		Container statementArea = Builder.CreateContainer(window);
 		statementArea.CreateLayoutGroup(SFS.UI.ModGUI.Type.Vertical, TextAnchor.MiddleCenter, 4f, new RectOffset(0, 0, 0, 0));
-		Builder.CreateLabel(statementArea, 900, 35, 0, 0, "Read the full statement before joining the server.");
+		Builder.CreateLabel(statementArea, 900, 35, 0, 0, statementRead ? "Statement accepted." : "Read the full statement before joining the server.");
 		Window statementWindow = UIToolsBuilder.CreateClosableWindow(statementArea, Builder.GetRandomID(), 900, 360, 0, 0, draggable: false, savePosition: false, opacity: 0.45f, titleText: "User Statement", minimized: false);
 		statementWindow.CreateLayoutGroup(SFS.UI.ModGUI.Type.Vertical, TextAnchor.UpperLeft, 8f, new RectOffset(15, 15, 15, 15));
 		statementWindow.EnableScrolling(SFS.UI.ModGUI.Type.Vertical);
@@ -183,8 +206,20 @@ Published: July 27, 2026";
 		Container buttons = Builder.CreateContainer(window);
 		buttons.CreateLayoutGroup(SFS.UI.ModGUI.Type.Horizontal, TextAnchor.MiddleLeft);
 		Builder.CreateButton(buttons, 300, 90, 0, 0, Close, "Back");
-		agreeButton = Builder.CreateButton(buttons, 420, 90, 0, 0, CheckAndJoin, "Read to the end to continue");
-		agreeButton.gameObject.GetComponent<ButtonPC>().SetEnabled(false);
+		agreeButton = Builder.CreateButton(buttons, 420, 90, 0, 0, CheckAndJoin,
+		statementRead ? "Join Server" : "Read to the end to continue");
+		agreeButton.gameObject.GetComponent<ButtonPC>().SetEnabled(statementRead);
+	}
+
+	private static bool HasAcceptedStatement()
+	{
+		return PlayerPrefs.GetString(StatementAcceptedKey, string.Empty) == StatementVersion;
+	}
+
+	private static void SaveStatementAcceptance()
+	{
+		PlayerPrefs.SetString(StatementAcceptedKey, StatementVersion);
+		PlayerPrefs.Save();
 	}
 
 	private void Update()
@@ -195,8 +230,9 @@ Published: July 27, 2026";
 		if (statementScroll.PercentPosition.y <= 0.0001f)
 		{
 			statementRead = true;
+			SaveStatementAcceptance();
 			agreeButton.gameObject.GetComponent<ButtonPC>().SetEnabled(true);
-			agreeButton.Text = "Agree and Join Server";
+			agreeButton.Text = "Join Server";
 		}
 	}
 
@@ -219,6 +255,9 @@ Published: July 27, 2026";
 			}
 			else
 			{
+				PlayerPrefs.SetString(LastServerKey, joinInfo.address + ":" + joinInfo.port);
+				PlayerPrefs.SetString(LastUsernameKey, joinInfo.username);
+				PlayerPrefs.Save();
 				MsgDrawer.main.Log("Attempting to connect...");
 				await ClientManager.TryConnect(joinInfo);
 			}

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
-    <AssemblyName>SFS-Multiplayer-1.6-V1.0.6.2</AssemblyName>
+    <AssemblyName>SFS-Multiplayer-1.6-V1.1.3</AssemblyName>
     <RootNamespace>MultiplayerSFS</RootNamespace>
     <LangVersion>12.0</LangVersion>
     <Nullable>disable</Nullable>

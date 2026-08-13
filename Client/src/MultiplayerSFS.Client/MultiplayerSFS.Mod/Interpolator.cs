@@ -34,6 +34,8 @@ public class Interpolator : MonoBehaviour
 	public InterpolationMode interpolationMode;
 
 	private double lastSnapshotRequestWorldTime = double.NegativeInfinity;
+	private bool authorityStateKnown;
+	private bool wasAuthority;
 
 	public static NetworkAdaptiveProfile AdaptiveProfile => ClientManager.client?.AdaptiveProfile ?? NetworkAdaptationPolicy.Evaluate(0, 0, 0);
 
@@ -103,14 +105,26 @@ public class Interpolator : MonoBehaviour
 		return rotation;
 	}
 
+	public static bool ShouldPrimeAuthorityState(bool wasAuthority, bool isAuthority)
+	{
+		return !wasAuthority && isAuthority;
+	}
+
 	private void Update()
 	{
 		if (currentUpdate == null)
 		{
 			return;
 		}
-		if (LocalManager.updateAuthority.Contains(currentUpdate.RocketId))
+		bool isAuthority = LocalManager.updateAuthority.Contains(currentUpdate.RocketId);
+		bool gainedAuthority = !authorityStateKnown
+			? isAuthority
+			: ShouldPrimeAuthorityState(wasAuthority, isAuthority);
+		authorityStateKnown = true;
+		wasAuthority = isAuthority;
+		if (isAuthority)
 		{
+			if (gainedAuthority) PrimeAuthorityState();
 			rocket.rocket.rb2d.bodyType = RigidbodyType2D.Dynamic;
 			rocket.rocket.rb2d.interpolation = RigidbodyInterpolation2D.None;
 			RunAllPackets();
@@ -161,6 +175,36 @@ public class Interpolator : MonoBehaviour
 			}
 			return false;
 		});
+	}
+
+	private void PrimeAuthorityState()
+	{
+		Packet_UpdateRocketPrimary authoritative = currentUpdate;
+		if (updateBuffer.Count > 0)
+		{
+			authoritative = updateBuffer[updateBuffer.Count - 1];
+		}
+		if (authoritative == null || rocket == null || rocket.rocket == null)
+		{
+			return;
+		}
+		ApplyStateImmediately(authoritative.Location.ToVanillaLocation(), authoritative.Rotation, authoritative.AngularVelocity);
+	}
+
+	private void ApplyStateImmediately(Location loc, float rot, float angVel)
+	{
+		loc = ClampBelowTerrain(loc);
+		rocket.rocket.rb2d.transform.eulerAngles = new Vector3(0f, 0f, rot);
+		rocket.rocket.rb2d.angularVelocity = angVel;
+		if (rocket.rocket.physics.PhysicsMode)
+		{
+			((I_Physics)rocket.rocket).LocalPosition = WorldView.ToLocalPosition(loc.position);
+			((I_Physics)rocket.rocket).LocalVelocity = WorldView.ToLocalVelocity(loc.velocity);
+		}
+		else
+		{
+			rocket.rocket.physics.SetLocationAndState(loc, physicsMode: false);
+		}
 	}
 
 	private void PredictState(Packet_UpdateRocketPrimary lastPacket)
