@@ -259,7 +259,7 @@ have been validly granted by You or Your distributors under this License
 prior to termination shall survive termination.
 
 ************************************************************************
-*                                                                      
+*                                                                      *
 *  6. Disclaimer of Warranty                                           *
 *  -------------------------                                           *
 *                                                                      *
@@ -278,7 +278,7 @@ prior to termination shall survive termination.
 ************************************************************************
 
 ************************************************************************
-*                                                                      
+*                                                                      *
 *  7. Limitation of Liability                                          *
 *  --------------------------                                          *
 *                                                                      *
@@ -297,7 +297,7 @@ prior to termination shall survive termination.
 *  jurisdictions do not allow the exclusion or limitation of           *
 *  incidental or consequential damages, so this exclusion and          *
 *  limitation may not apply to You.                                    *
-*                                                                      
+*                                                                      *
 ************************************************************************
 
 8. Litigation
