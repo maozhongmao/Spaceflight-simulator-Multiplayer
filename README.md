@@ -43,7 +43,7 @@ Spaceflight Simulator 1.6 的实时多人联机项目。
 
 ## 开源协议
 
-本项目使用 MIT License。详细条款请查看 [LICENCE.txt](LICENCE.txt)。
+本项目使用 MPL License。详细条款请查看 [LICENCE.txt](LICENCE.txt)。
 
 ## 源码仓库
 
