@@ -15,8 +15,8 @@
 
 请私下联系：
 
-- 邮箱：maozhongmao@qq.com
-- 备用：yangchengtong@stch.de5.net
+- 邮箱：yangchengtong@stch.de5.net
+- 备用：maozhongmao@qq.com
 
 报告中请说明：受影响的版本、复现步骤、影响范围（例如：能让服务端崩溃 / 能绕过加入密码 / 能越权控制他人火箭）。
 
