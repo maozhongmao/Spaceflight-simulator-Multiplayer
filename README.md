@@ -8,7 +8,7 @@ Spaceflight Simulator 1.6 的实时多人联机项目。
 
 - `Client/`：SFS 1.6 客户端模组源码。
 - `Server/`：独立联机服务端源码。
-- `LICENCE.txt`：本项目的 MPL License。
+- `LICENCE.md`：本项目的 MPL License。
 
 客户端模组安装在 SFS 1.6 的 `Mods` 目录中，服务端作为独立程序运行。客户端与服务端需要使用相互匹配的版本。
 
@@ -43,7 +43,7 @@ Spaceflight Simulator 1.6 的实时多人联机项目。
 
 ## 开源协议
 
-本项目使用 MPL License。详细条款请查看 [LICENCE.txt](LICENCE.txt)。
+本项目使用 MPL License。详细条款请查看 [LICENCE.md](LICENCE.md)。
 
 ## 源码仓库
 
