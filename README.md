@@ -54,7 +54,7 @@ https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer
 ## 联系方式
 
 - QQ Group: 679991439
-- Email: maozhongmao@qq.com
+- Email: stch-stuido@stch.de5.net
 
 Copyright (c) 2026 STCH Studio
 Developer: maozhongmao / yangchengtong
