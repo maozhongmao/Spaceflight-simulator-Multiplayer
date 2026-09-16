@@ -41,6 +41,7 @@ public static class ClientManager
 	public static async Task TryConnect(JoinInfo info)
 	{
 		connecting = true;
+		ClearExperimentalAccess();
 		activeJoinInfo = info;
 		resumeToken = string.Empty;
 		recoveryRunning = false;
@@ -66,7 +67,7 @@ public static class ClientManager
 			Debug.LogWarning("Failed to check local solar systems: " + ex.Message);
 		}
 
-		Menu.loading.Open("Connecting to SFS Multiplayer V1.1.3...");
+		Menu.loading.Open("Connecting to SFS Multiplayer V1.1.4...");
 		try
 		{
 			Packet_JoinResponse response = await client.ConnectAsync(info.address, info.port,
@@ -214,6 +215,7 @@ public static class ClientManager
 		if (disconnectionHandled) return;
 		disconnectionHandled = true;
 		networkReady = false;
+		ClearExperimentalAccess();
 		string text = string.IsNullOrEmpty(reason) ? "Disconnected from server." : reason;
 		Debug.LogWarning("TCP disconnected: " + text);
 		if (MsgDrawer.main != null) MsgDrawer.main.Log(text);
@@ -230,6 +232,7 @@ public static class ClientManager
 		connecting = false;
 		networkReady = false;
 		disconnectionHandled = true;
+		ClearExperimentalAccess();
 		client?.Disconnect(reason);
 	}
 
@@ -269,6 +272,12 @@ public static class ClientManager
 			break;
 		case PacketType.UpdateCheatStatus:
 			OnPacket_UpdateCheatStatus(msg);
+			break;
+		case PacketType.ExperimentalAccess:
+			OnPacket_ExperimentalAccess(msg);
+			break;
+		case PacketType.P2PPeerOffer:
+			OnPacket_P2PPeerOffer(msg);
 			break;
 		case PacketType.CreateRocket:
 			OnPacket_CreateRocket(msg);
@@ -325,6 +334,25 @@ public static class ClientManager
 	}
 
 	public static ControlOwnershipCoordinator ControlOwnership { get; } = new ControlOwnershipCoordinator();
+
+	public static bool ExperimentalAccessGranted { get; private set; }
+
+	public static void RequestExperimentalAccess(string passphrase)
+	{
+		ClearExperimentalAccess();
+		if (!multiplayerEnabled.Value || client == null || !client.Connected) return;
+		SendPacket(new Packet_ExperimentalAccess
+		{
+			Request = true,
+			Passphrase = passphrase ?? string.Empty
+		});
+	}
+
+	public static void ClearExperimentalAccess()
+	{
+		ExperimentalAccessGranted = false;
+		P2PConnectionManager.Clear();
+	}
 
 	public static void SendPacket(Packet packet, NetDeliveryMethod method = (NetDeliveryMethod)67)
 	{
@@ -484,6 +512,17 @@ public static class ClientManager
 		ToastHelper.ShowToast(msg.Read<Packet_ShowToastMessage>().Message);
 	}
 
+	private static void OnPacket_ExperimentalAccess(NetIncomingMessage msg)
+	{
+		Packet_ExperimentalAccess packet = msg.Read<Packet_ExperimentalAccess>();
+		ExperimentalAccessGranted = packet.Granted;
+		if (!string.IsNullOrEmpty(packet.Message)) ToastHelper.ShowToast(packet.Message);
+	}
+	private static void OnPacket_P2PPeerOffer(NetIncomingMessage msg)
+	{
+		if (!ExperimentalAccessGranted) return;
+		P2PConnectionManager.ApplyOffer(msg.Read<Packet_P2PPeerOffer>());
+	}
 	private static void OnPacket_UpdateCheatStatus(NetIncomingMessage msg)
 	{
 		Packet_UpdateCheatStatus packet_UpdateCheatStatus = msg.Read<Packet_UpdateCheatStatus>();
@@ -539,6 +578,13 @@ public static class ClientManager
 			" into rocket " + packet.KeepRocketId + ".");
 	}
 
+	public static void ApplyP2PPrimary(Packet_UpdateRocketPrimary packet)
+	{
+		if (packet == null || world == null) return;
+		if (!world.rockets.TryGetValue(packet.RocketId, out var state)) return;
+		state.UpdateRocketPrimary(packet);
+		Interpolator.AddPacketToQueue(packet, packet.RocketId, packet.WorldTime);
+	}
 	private static void OnPacket_UpdateRocketPrimary(NetIncomingMessage msg)
 	{
 		Packet_UpdateRocketPrimary packet_UpdateRocketPrimary = msg.Read<Packet_UpdateRocketPrimary>();

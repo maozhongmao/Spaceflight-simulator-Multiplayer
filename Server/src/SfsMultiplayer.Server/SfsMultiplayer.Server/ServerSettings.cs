@@ -22,6 +22,11 @@ public sealed class ServerSettings
     public int MaxChatMessageLength { get; set; } = 512;
     public bool Debug { get; set; }
 
+    [YamlMember(Alias = "p2p")]
+    public P2PSettings P2P { get; set; } = new();
+
+    public ExperimentalAccessSettings ExperimentalAccess { get; set; } = new();
+
     [JsonIgnore]
     [YamlIgnore]
     public IPAddress BindIpAddress => IPAddress.Parse(BindAddress);
@@ -41,12 +46,33 @@ public sealed class ServerSettings
             throw new InvalidDataException("UpdateRocketsPeriod must be between 10 and 1000 milliseconds.");
         if (!double.IsFinite(ChatMessageCooldown) || ChatMessageCooldown < 0 || ChatMessageCooldown > 3600)
             throw new InvalidDataException("ChatMessageCooldown must be between 0 and 3600 seconds.");
+        ValidateP2P();
         if (MaxUsernameLength < 1 || MaxUsernameLength > 128)
             throw new InvalidDataException("MaxUsernameLength must be between 1 and 128.");
         if (MaxChatMessageLength < 1 || MaxChatMessageLength > 4096)
             throw new InvalidDataException("MaxChatMessageLength must be between 1 and 4096.");
         if (Password.Length > 256)
             throw new InvalidDataException("Password cannot exceed 256 characters.");
+    }
+
+    private void ValidateP2P()
+    {
+        if (P2P is null) throw new InvalidDataException("P2P settings cannot be null.");
+        if (!double.IsFinite(P2P.ProximityMeters) || P2P.ProximityMeters < 0 || P2P.ProximityMeters > 1_000_000)
+            throw new InvalidDataException("P2P.ProximityMeters must be between 0 and 1000000.");
+        if (P2P.ValidationIntervalSeconds < 1 || P2P.ValidationIntervalSeconds > 3600)
+            throw new InvalidDataException("P2P.ValidationIntervalSeconds must be between 1 and 3600.");
+        if (P2P.PeerTimeoutSeconds < 1 || P2P.PeerTimeoutSeconds > 3600)
+            throw new InvalidDataException("P2P.PeerTimeoutSeconds must be between 1 and 3600.");
+        if (P2P.TransitionBufferSeconds < 0 || P2P.TransitionBufferSeconds > 3600)
+            throw new InvalidDataException("P2P.TransitionBufferSeconds must be between 0 and 3600.");
+        if (P2P.MaxGroupMembers < 1 || P2P.MaxGroupMembers > 256)
+            throw new InvalidDataException("P2P.MaxGroupMembers must be between 1 and 256.");
+        if (P2P.MaxDirectPeersPerClient < 1 || P2P.MaxDirectPeersPerClient > 256)
+            throw new InvalidDataException("P2P.MaxDirectPeersPerClient must be between 1 and 256.");
+        if (ExperimentalAccess is null) throw new InvalidDataException("ExperimentalAccess settings cannot be null.");
+        if (ExperimentalAccess.Passphrase.Length > 256)
+            throw new InvalidDataException("ExperimentalAccess.Passphrase cannot exceed 256 characters.");
     }
 
     public static ServerSettings Load(string path)
@@ -118,6 +144,21 @@ chat_message_cooldown: 3
 max_username_length: 32
 max_chat_message_length: 512
 debug: false
+
+# Experimental features. Leave empty to disable their server-side unlock.
+experimental_access:
+  passphrase: ""
+
+# Experimental P2P feasibility settings.
+# IPv6 endpoints are always represented as quoted strings in YAML.
+p2p:
+  enabled: true
+  proximity_meters: 5000
+  validation_interval_seconds: 1
+  peer_timeout_seconds: 3
+  transition_buffer_seconds: 10
+  max_group_members: 16
+  max_direct_peers_per_client: 8
 """;
 
     private static readonly IDeserializer YamlDeserializer = new DeserializerBuilder()

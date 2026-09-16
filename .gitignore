@@ -1,0 +1,8 @@
+# 构建产物
+bin/
+obj/
+*.pdb
+*.user
+*.suo
+.vs/
+Client/artifacts/

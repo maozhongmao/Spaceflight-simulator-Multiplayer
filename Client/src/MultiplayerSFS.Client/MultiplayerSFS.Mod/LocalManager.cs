@@ -213,6 +213,7 @@ public static class LocalManager
 						Debug.LogError("Missing rocket state while trying to send update packets!");
 					}
 					ClientManager.SendPacket(packet, (NetDeliveryMethod)67);
+					P2PConnectionManager.SendRocketState(packet);
 					if (!rocket.physics.PhysicsMode)
 					{
 						continue;

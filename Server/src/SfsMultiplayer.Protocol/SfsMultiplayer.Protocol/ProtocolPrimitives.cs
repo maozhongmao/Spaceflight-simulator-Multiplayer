@@ -56,6 +56,8 @@ public enum PacketType : byte
     UpdatePart_ResourceModule = 20,
     DockTransaction = 23,
     TimeWarp = 24,
+    ExperimentalAccess = 25,
+    P2PPeerOffer = 26,
 }
 
 public static class NetMessageExtensions

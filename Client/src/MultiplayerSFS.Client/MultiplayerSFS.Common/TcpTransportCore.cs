@@ -309,6 +309,8 @@ public sealed class TcpClientTransport : IDisposable
 	private string remoteAddress = string.Empty;
 	private volatile bool connected;
 
+	public UdpClientTransport UdpTransport => udp;
+
 	public bool Connected => connected;
 	public int QueueCount => outgoing.Count;
 	public long OverwrittenStates => outgoing.OverwrittenStates;

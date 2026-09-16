@@ -20,7 +20,7 @@ public class JoinMenu : BasicMenu
 	private static readonly Vector2Int windowSize = new Vector2Int(1000, 820);
 	private const string Statement = @"STCH Studio Multiplayer Mod and Relay Server Statement
 
-Version: V1.1.3    Updated: August 4, 2026
+Updated: August 16, 2026
 
 STCH Studio, independently established and operated by the developer known as maozhongmao / yangchengtong (""STCH Studio"" or ""the Developer""), hereby states:
 
@@ -80,7 +80,7 @@ This Statement is governed by applicable laws and regulations. Disputes should f
 For questions, suggestions, or reports of violations:
 
 Official QQ Group 2: 679991439
-Email: maozhongmao@qq.com
+Email: maozhongmao@qq.com / yangchengtong@stch.de5.net
 
 12. Open-Source Notice
 
@@ -95,9 +95,9 @@ This multiplayer mod is released under the MIT License:
 STCH Studio (Developer: maozhongmao / yangchengtong)
 Private email: maozhongmao@qq.com / yangchengtong@stch.de5.net
 Studio email: stch-stuido@stch.de5.net
-Published: August 11, 2026";
+Published: August 16, 2026";
 	private const string StatementAcceptedKey = "multiplayersfs.statement.accepted";
-	private const string StatementVersion = "2026-08-11";
+	private const string StatementVersion = "2026-08-16";
 	private const string LastServerKey = "multiplayersfs.last.server";
 	private const string LastUsernameKey = "multiplayersfs.last.username";
 

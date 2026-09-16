@@ -28,5 +28,7 @@ public enum PacketType
 	ShowToastMessage = 21,
 	UpdateCheatStatus = 22,
 	DockTransaction = 23,
-	TimeWarp = 24
+	TimeWarp = 24,
+	ExperimentalAccess = 25,
+	P2PPeerOffer = 26
 }

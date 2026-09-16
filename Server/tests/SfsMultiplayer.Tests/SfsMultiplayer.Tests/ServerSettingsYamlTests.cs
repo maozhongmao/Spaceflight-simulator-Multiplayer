@@ -34,4 +34,53 @@ public sealed class ServerSettingsYamlTests
 
         Assert.Contains("BindAddress", error.Message);
     }
+
+    [Fact]
+    public void P2PDefaultsUseConfiguredValidationValues()
+    {
+        var settings = new ServerSettings();
+
+        Assert.True(settings.P2P.Enabled);
+        Assert.Equal(5000, settings.P2P.ProximityMeters);
+        Assert.Equal(1, settings.P2P.ValidationIntervalSeconds);
+        Assert.Equal(3, settings.P2P.PeerTimeoutSeconds);
+        Assert.Equal(10, settings.P2P.TransitionBufferSeconds);
+    }
+
+    [Fact]
+    public void LoadsP2PYamlSection()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"sfs-p2p-{Guid.NewGuid():N}.yml");
+        try
+        {
+            File.WriteAllText(path, "p2p:\n  enabled: true\n  proximity_meters: 5000\n");
+            var settings = ServerSettings.Load(path);
+            Assert.True(settings.P2P.Enabled);
+            Assert.Equal(5000, settings.P2P.ProximityMeters);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ExperimentalAccessDefaultsToDisabledWithoutPassphrase()
+    {
+        var settings = new ServerSettings();
+
+        Assert.False(settings.ExperimentalAccess.IsConfigured);
+        Assert.False(settings.ExperimentalAccess.Accepts("anything"));
+    }
+
+    [Fact]
+    public void ExperimentalAccessUsesConfiguredPassphrase()
+    {
+        var settings = new ServerSettings();
+        settings.ExperimentalAccess.Passphrase = "server-only-test";
+
+        Assert.True(settings.ExperimentalAccess.IsConfigured);
+        Assert.True(settings.ExperimentalAccess.Accepts("server-only-test"));
+        Assert.False(settings.ExperimentalAccess.Accepts("wrong"));
+    }
 }

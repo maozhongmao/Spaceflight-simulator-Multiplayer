@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -7,13 +8,31 @@ using System.Threading.Tasks;
 
 namespace MultiplayerSFS.Common;
 
+public sealed class P2PRawDatagram
+{
+	public IPEndPoint RemoteEndPoint { get; }
+	public byte[] Data { get; }
+
+	public P2PRawDatagram(IPEndPoint remoteEndPoint, byte[] data)
+	{
+		RemoteEndPoint = remoteEndPoint;
+		Data = data ?? Array.Empty<byte>();
+	}
+}
+
 public sealed class UdpClientTransport : IDisposable
 {
 	private const byte Bind = 1;
 	private const byte BindAck = 2;
 	private const byte Data = 3;
+	public const byte P2PMagic = 0xA7;
+
 	private readonly Action<TcpFrame> receivePacket;
+	private readonly object socketLock = new object();
+	private readonly object peerLock = new object();
+	private readonly Queue<P2PRawDatagram> peerDatagrams = new Queue<P2PRawDatagram>();
 	private UdpClient socket;
+	private IPEndPoint serverEndpoint;
 	private CancellationTokenSource cancellation;
 	private CancellationTokenSource heartbeatCancellation;
 	private string token;
@@ -29,13 +48,13 @@ public sealed class UdpClientTransport : IDisposable
 
 	public void Start(IPAddress address, int port, string sessionToken)
 	{
-		if (string.IsNullOrEmpty(sessionToken)) return;
+		if (address == null || port < 1 || port > 65535 || string.IsNullOrEmpty(sessionToken)) return;
 		token = sessionToken;
+		serverEndpoint = new IPEndPoint(address, port);
 		socket = new UdpClient(address.AddressFamily);
-		socket.Connect(new IPEndPoint(address, port));
 		cancellation = new CancellationTokenSource();
 		heartbeatCancellation = new CancellationTokenSource();
-		Send(Bind, Array.Empty<byte>());
+		SendServer(Bind, Array.Empty<byte>());
 		Task.Run(() => ReceiveLoop(cancellation.Token));
 		Task.Run(() => BindHeartbeatLoop(heartbeatCancellation.Token));
 	}
@@ -44,19 +63,52 @@ public sealed class UdpClientTransport : IDisposable
 	{
 		if (!bound || packet == null) return;
 		NetPayload payload = NetPayloadCodec.Serialize(packet, true);
-		Send(Data, payload.Data);
+		SendServer(Data, payload.Data);
 	}
 
-	private void Send(byte kind, byte[] payload)
+	public bool TrySendPeer(IPEndPoint endpoint, byte[] data)
 	{
-		if (socket == null || string.IsNullOrEmpty(token)) return;
+		if (endpoint == null || data == null || data.Length == 0) return false;
+		try
+		{
+			lock (socketLock)
+			{
+				if (socket == null) return false;
+				socket.Send(data, data.Length, endpoint);
+				return true;
+			}
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	public bool TryReceivePeer(out P2PRawDatagram datagram)
+	{
+		lock (peerLock)
+		{
+			if (peerDatagrams.Count > 0)
+			{
+				datagram = peerDatagrams.Dequeue();
+				return true;
+			}
+		}
+		datagram = null;
+		return false;
+	}
+
+	private void SendServer(byte kind, byte[] payload)
+	{
+		if (serverEndpoint == null || string.IsNullOrEmpty(token)) return;
 		byte[] tokenBytes = Encoding.UTF8.GetBytes(token);
+		if (tokenBytes.Length > byte.MaxValue) return;
 		byte[] data = new byte[2 + tokenBytes.Length + payload.Length];
 		data[0] = kind;
 		data[1] = (byte)tokenBytes.Length;
 		Buffer.BlockCopy(tokenBytes, 0, data, 2, tokenBytes.Length);
 		Buffer.BlockCopy(payload, 0, data, 2 + tokenBytes.Length, payload.Length);
-		try { socket.Send(data, data.Length); } catch { }
+		TrySendPeer(serverEndpoint, data);
 	}
 
 	private async Task BindHeartbeatLoop(CancellationToken cancellationToken)
@@ -65,7 +117,7 @@ public sealed class UdpClientTransport : IDisposable
 		{
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				Send(Bind, Array.Empty<byte>());
+				SendServer(Bind, Array.Empty<byte>());
 				await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
 			}
 		}
@@ -80,6 +132,16 @@ public sealed class UdpClientTransport : IDisposable
 			{
 				UdpReceiveResult result = await socket.ReceiveAsync().ConfigureAwait(false);
 				byte[] data = result.Buffer;
+				if (data.Length == 0) continue;
+				if (data[0] == P2PMagic)
+				{
+					lock (peerLock)
+					{
+						if (peerDatagrams.Count < 512)
+							peerDatagrams.Enqueue(new P2PRawDatagram(result.RemoteEndPoint, data));
+					}
+					continue;
+				}
 				if (data.Length < 2) continue;
 				int tokenLength = data[1];
 				if (data.Length < 2 + tokenLength) continue;
@@ -104,5 +166,6 @@ public sealed class UdpClientTransport : IDisposable
 		try { cancellation?.Cancel(); } catch { }
 		try { heartbeatCancellation?.Cancel(); } catch { }
 		try { socket?.Close(); } catch { }
+		lock (peerLock) peerDatagrams.Clear();
 	}
 }

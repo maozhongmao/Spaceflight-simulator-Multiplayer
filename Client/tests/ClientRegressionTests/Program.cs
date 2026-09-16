@@ -39,6 +39,10 @@ internal static class Program
         Run("Time-warp vote packet matches server wire format", TimeWarpPacketMatchesServerWireFormat);
         Run("Multiplayer split follows native selection", MultiplayerSplitFollowsNativeSelection);
         Run("Control coordinator applies only server confirmation", ControlCoordinatorUsesServerConfirmation);
+        Run("P2P state accepts only newer generation and sequence", P2PStateOrderingIsMonotonic);
+        Run("P2P proximity requires same coordinate system and threshold", P2PProximityUsesRelativeDistance);
+        Run("P2P timeout enters relay fallback", P2PTimeoutFallsBackToServer);
+        Run("Experimental unlock packet round-trips", ExperimentalUnlockPacketRoundTrips);
 
         Console.WriteLine(failures == 0 ? "ALL CLIENT REGRESSION TESTS PASSED" : $"FAILED: {failures}");
         Environment.ExitCode = failures == 0 ? 0 : 1;
@@ -227,6 +231,50 @@ internal static class Program
         Equal(-1, coordinator.PendingRocketId, "pending request cleared");
         False(coordinator.CanApplyNativeSelection(12), "unconfirmed native selection cannot apply");
         True(coordinator.CanApplyNativeSelection(7), "confirmed native selection can apply");
+    }
+
+    private static void P2PStateOrderingIsMonotonic()
+    {
+        True(P2PStateOrderPolicy.ShouldAccept(4, 2, 4, 4), "newer sequence accepted");
+        False(P2PStateOrderPolicy.ShouldAccept(4, 4, 4, 2), "older sequence rejected");
+        True(P2PStateOrderPolicy.ShouldAccept(4, 99, 5, 0), "new generation accepted");
+        False(P2PStateOrderPolicy.ShouldAccept(5, 0, 4, 99), "old generation rejected");
+    }
+
+    private static void P2PProximityUsesRelativeDistance()
+    {
+        var a = new NetLocation(new Double2(0, 0), new Double2(0, 0), "Earth");
+        var near = new NetLocation(new Double2(3000, 4000), new Double2(0, 0), "Earth");
+        var far = new NetLocation(new Double2(5001, 0), new Double2(0, 0), "Earth");
+        var otherAddress = new NetLocation(new Double2(0, 0), new Double2(0, 0), "Moon");
+        True(P2PProximityPolicy.IsEligible(a, near, 5000), "5km boundary is eligible");
+        False(P2PProximityPolicy.IsEligible(a, far, 5000), "over-threshold pair is not eligible");
+        False(P2PProximityPolicy.IsEligible(a, otherAddress, 5000), "different coordinate system is not eligible");
+    }
+
+    private static void P2PTimeoutFallsBackToServer()
+    {
+        DateTime now = DateTime.UtcNow;
+        True(P2PTransitionPolicy.ShouldFallback(now, now.AddSeconds(-3.01), 3), "peer timeout falls back");
+        False(P2PTransitionPolicy.ShouldFallback(now, now.AddSeconds(-2.99), 3), "fresh peer stays direct");
+    }
+
+    private static void ExperimentalUnlockPacketRoundTrips()
+    {
+        var source = new Packet_ExperimentalAccess
+        {
+            Request = true,
+            Passphrase = "test-only",
+            Granted = false,
+            Message = string.Empty
+        };
+        NetOutgoingMessage outgoing = NewOutgoing();
+        source.Serialize(outgoing);
+        var parsed = new Packet_ExperimentalAccess();
+        parsed.Deserialize(ToIncoming(outgoing));
+        True(parsed.Request, "unlock request flag");
+        Equal("test-only", parsed.Passphrase, "unlock passphrase");
+        False(parsed.Granted, "request must not self-grant");
     }
 
     private static void DestroyPartRoutesByRocketId()

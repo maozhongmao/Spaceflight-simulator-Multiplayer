@@ -17,6 +17,8 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly UdpStateTransport _udp;
     private readonly ConcurrentDictionary<int, TcpSession> _players = new();
+    private readonly Dictionary<(int First, int Second), string> _p2pPairTokens = new();
+    private readonly Stopwatch _p2pClock = Stopwatch.StartNew();
     private readonly Dictionary<(int KeepRocket, int RemoveRocket, int KeepPart, int RemovePart), PendingDock> _pendingDocks = new();
     private PendingTimeWarpVote? _pendingTimeWarpVote;
     private readonly ConcurrentBag<Task> _clientTasks = new();
@@ -341,6 +343,11 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             {
                 if (_pendingTimeWarpVote is not null && DateTime.UtcNow >= _pendingTimeWarpVote.ExpiresUtc)
                     CancelTimeWarpVote("投票已超时，时间倍率保持不变。");
+                if (_settings.P2P.Enabled && _p2pClock.Elapsed.TotalSeconds >= _settings.P2P.ValidationIntervalSeconds)
+                {
+                    _p2pClock.Restart();
+                    RefreshP2PPeers();
+                }
             }
             if (_settings.Debug && _debugClock.Elapsed >= TimeSpan.FromSeconds(5))
             {
@@ -351,6 +358,94 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         }
     }
 
+    private void RefreshP2PPeers()
+    {
+        var eligible = _players.Values
+            .Where(session => session.ExperimentalAccessGranted && session.UdpEndpoint is not null)
+            .OrderBy(session => session.Id)
+            .ToArray();
+        var activePairs = new HashSet<(int First, int Second)>();
+        for (var i = 0; i < eligible.Length; i++)
+        {
+            for (var j = i + 1; j < eligible.Length; j++)
+            {
+                var first = eligible[i];
+                var second = eligible[j];
+                var firstRockets = P2PRocketIds(first);
+                var secondRockets = P2PRocketIds(second);
+                var matches = FindP2PMatches(firstRockets, secondRockets);
+                if (matches.Count == 0) continue;
+                var key = (first.Id, second.Id);
+                activePairs.Add(key);
+                if (!_p2pPairTokens.TryGetValue(key, out var pairToken))
+                {
+                    pairToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+                    _p2pPairTokens[key] = pairToken;
+                }
+                SendP2POffer(first, second, pairToken, matches);
+                SendP2POffer(second, first, pairToken, matches.Select(match => (match.Second, match.First)).ToList());
+            }
+        }
+
+        foreach (var pair in _p2pPairTokens.Keys.Where(pair => !activePairs.Contains(pair)).ToArray())
+        {
+            _p2pPairTokens.Remove(pair);
+            if (_players.TryGetValue(pair.First, out var first) && _players.TryGetValue(pair.Second, out var second))
+            {
+                SendP2PRevoke(first, second.Id);
+                SendP2PRevoke(second, first.Id);
+            }
+        }
+    }
+
+    private List<int> P2PRocketIds(TcpSession session)
+    {
+        return session.UpdateAuthority
+            .Where(id => _world.Rockets.ContainsKey(id))
+            .OrderBy(id => id)
+            .ToList();
+    }
+
+    private List<(int First, int Second)> FindP2PMatches(List<int> firstIds, List<int> secondIds)
+    {
+        var result = new List<(int First, int Second)>();
+        foreach (var firstId in firstIds)
+        {
+            foreach (var secondId in secondIds)
+            {
+                if (P2PProximityPolicy.IsEligible(_world.Rockets[firstId].Location,
+                        _world.Rockets[secondId].Location, _settings.P2P.ProximityMeters))
+                    result.Add((firstId, secondId));
+            }
+        }
+        return result;
+    }
+
+    private void SendP2POffer(TcpSession recipient, TcpSession peer, string pairToken,
+        List<(int First, int Second)> matches)
+    {
+        Send(recipient, PacketType.P2PPeerOffer, new P2PPeerOfferPacket
+        {
+            Active = true,
+            PeerPlayerId = peer.Id,
+            PeerAddress = peer.UdpEndpoint!.Address.ToString(),
+            PeerPort = peer.UdpEndpoint.Port,
+            PairToken = pairToken,
+            TransitionBufferSeconds = _settings.P2P.TransitionBufferSeconds,
+            LocalRocketIds = matches.Select(match => match.First).Distinct().OrderBy(id => id).ToList(),
+            PeerRocketIds = matches.Select(match => match.Second).Distinct().OrderBy(id => id).ToList(),
+        });
+    }
+
+    private void SendP2PRevoke(TcpSession recipient, int peerId)
+    {
+        Send(recipient, PacketType.P2PPeerOffer, new P2PPeerOfferPacket
+        {
+            Active = false,
+            PeerPlayerId = peerId,
+            TransitionBufferSeconds = _settings.P2P.TransitionBufferSeconds,
+        });
+    }
     private void HandlePong(TcpSession session, TcpFrame frame)
     {
         if (frame.Payload.Length < 8) return;
@@ -451,8 +546,22 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             case PacketType.UpdatePart_ResourceModule: HandleResource(message, player); break;
             case PacketType.DockTransaction: HandleDockTransaction(message, player); break;
             case PacketType.TimeWarp: HandleTimeWarp(message, player); break;
+            case PacketType.ExperimentalAccess: HandleExperimentalAccess(message, player); break;
             default: throw new InvalidDataException($"Packet {type} is server-only or invalid after joining.");
         }
+    }
+
+    private void HandleExperimentalAccess(NetIncomingMessage message, TcpSession player)
+    {
+        var packet = Read<ExperimentalAccessPacket>(message);
+        if (!packet.Request) return;
+        player.ExperimentalAccessGranted = _settings.ExperimentalAccess.Accepts(packet.Passphrase);
+        Send(player, PacketType.ExperimentalAccess, new ExperimentalAccessPacket
+        {
+            Request = false,
+            Granted = player.ExperimentalAccessGranted,
+            Message = player.ExperimentalAccessGranted ? "Experimental access granted." : "Experimental access denied."
+        });
     }
 
     private void HandleTimeWarp(NetIncomingMessage message, TcpSession player)
@@ -1341,6 +1450,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         public DateTime LastUdpReceiveUtc { get; set; } = DateTime.UtcNow;
         public DateTime RecoveryExpiresUtc { get; private set; } = DateTime.MinValue;
         public int ControlledRocket { get; set; } = -1;
+        public bool ExperimentalAccessGranted { get; set; }
         public DateTime LastChatUtc { get; set; } = DateTime.MinValue;
         public DateTime LastReceiveUtc { get; set; } = DateTime.UtcNow;
         public long LastPingTicks { get; set; }
@@ -1366,6 +1476,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             Client = client;
             Stream = stream;
             ConnectionGeneration++;
+            ExperimentalAccessGranted = false;
             RecoveryExpiresUtc = DateTime.MinValue;
             LastReceiveUtc = DateTime.UtcNow;
             try { oldClient.Close(); } catch { }

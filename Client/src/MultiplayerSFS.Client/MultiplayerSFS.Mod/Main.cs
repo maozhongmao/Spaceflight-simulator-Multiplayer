@@ -21,15 +21,15 @@ public class Main : ModLoader.Mod
 
 	public override string ModNameID => "multiplayersfs";
 
-	public override string DisplayName => "SFS Multiplayer V1.1.3";
+	public override string DisplayName => "SFS Multiplayer V1.1.4";
 
 	public override string Author => "Astro The Rabbit, VerdiX";
 
 	public override string MinimumGameVersionNecessary => "1.6.00.16";
 
-	public override string ModVersion => "1.1.3";
+	public override string ModVersion => "1.1.4";
 
-	public override string Description => "SFS Multiplayer V1.1.3";
+	public override string Description => "SFS Multiplayer V1.1.4";
 
 	public override Dictionary<string, string> Dependencies { get; } = new Dictionary<string, string> { { "UITools", "1.1.5" } };
 

@@ -60,7 +60,7 @@ internal static class ServerProgram
                 await using (var server = new TcpMultiplayerServer(settings, world))
                 {
                     server.Start();
-                    Console.WriteLine($"[启动] TCP+UDP Network V1.1.3 {settings.BindAddress}:{server.Port}，最多 {settings.MaxConnections} 人。");
+                    Console.WriteLine($"[启动] TCP+UDP P2P Network V1.1.4 {settings.BindAddress}:{server.Port}，最多 {settings.MaxConnections} 人。");
                     if (settings.Debug) Console.WriteLine("[调试] 已开启。");
                     Console.WriteLine("[指令] 输入 help 查看服务端命令，输入 stop 安全保存并退出。");
                     StartConsoleCommandThread(server, cancellation);
