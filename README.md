@@ -4,6 +4,8 @@ Spaceflight Simulator 1.6 的实时多人联机项目。
 
 本项目通过客户端模组和独立服务端，让多个玩家进入同一个 SFS 世界，实时同步玩家火箭及其状态，并提供多人联机所需的基础网络功能。
 
+> 使用说明见 [项目维基](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/wiki)；开发进度与后续计划见 [更新计划](ROADMAP.md)。
+
 客户端模组与服务端必须使用相互匹配的版本，各版本文件见 [Releases](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/releases)。
 
 ## 项目组成
