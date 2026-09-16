@@ -53,7 +53,7 @@ Spaceflight Simulator 1.6 的实时多人联机项目。
 
 ## 文档
 
-- [项目维基](wiki/README.md)：项目结构、联机架构、网络协议、编译发布、部署运维与常见问题。
+- [项目维基](https://github.com/maozhongmao/Spaceflight-simulator-Multiplayer/wiki)：项目结构、联机架构、网络协议、编译发布、部署运维与常见问题。
 - [更新计划](ROADMAP.md)：接下来要更新的内容，以及已完成但尚未上传的部分。
 
 ## 开源协议
