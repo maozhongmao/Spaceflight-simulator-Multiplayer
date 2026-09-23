@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.IO;
 using System.Text;
@@ -46,7 +50,8 @@ public static class SessionHandshakeCodec
 				UdpSessionToken = ReadString(reader),
 				ResumeToken = ReadString(reader)
 			};
-			Require(stream.Position == stream.Length, "Handshake response has trailing data.");
+			if (stream.Position != stream.Length)
+				throw new InvalidDataException($"Handshake response has trailing data: position={stream.Position}, length={stream.Length}, remaining={stream.Length - stream.Position}.");
 			return response;
 		}
 	}

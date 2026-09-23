@@ -1,4 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -17,6 +22,7 @@ public class PartUpdateSyncing
 	public static class DockingPortModule_Dock
 	{
 		private static DateTime lastRequestUtc;
+	private static int nextDockTransactionId;
 
 		public static bool Prefix(DockingPortModule __instance, DockingPortModule otherPort)
 		{
@@ -34,7 +40,7 @@ public class PartUpdateSyncing
 				Part removePart = otherPort.GetComponentInParent<Part>();
 				ClientManager.SendPacket(new Packet_DockTransaction
 				{
-					TransactionId = System.Environment.TickCount,
+					TransactionId = Interlocked.Increment(ref nextDockTransactionId),
 					Operation = DockTransactionOperation.Dock,
 					Committed = false,
 					KeepRocketId = syncedRocketID,

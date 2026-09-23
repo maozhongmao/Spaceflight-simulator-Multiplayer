@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using HarmonyLib;
 using MultiplayerSFS.Mod;
 using SFS.UI;
@@ -60,7 +64,7 @@ public class DisableTimewarp
 		{
 			if (ClientManager.multiplayerEnabled.Value)
 			{
-				MsgDrawer.main.Log("Press F7 to request a multiplayer time-warp vote");
+				MsgDrawer.main.Log("Multiplayer time-warp is controlled by the normal accelerate/decelerate buttons.");
 				return false;
 			}
 			return true;

@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Threading;
 using HarmonyLib;
 using SFS;
@@ -38,14 +42,25 @@ public class DivertBuildSavingAndLoading
 				ref SavingCache.Data<Blueprint> reference = ref __instance.FieldRef<SavingCache.Data<Blueprint>>("buildPersistent");
 				if (reference == null)
 				{
+#if SFS15
+					FolderPath path = Main.buildPersistentFolder;
+#else
 					IFolder path = Main.buildPersistentFolder;
+#endif
 					MsgCollector logger = new MsgCollector();
 					reference = new SavingCache.Data<Blueprint>
 					{
 						thread = new Thread((ThreadStart)delegate
-						{
-							ref SavingCache.Data<Blueprint> reference2 = ref __instance.FieldRef<SavingCache.Data<Blueprint>>("buildPersistent");
+												{
+												try
+												{
+													ref SavingCache.Data<Blueprint> reference2 = ref __instance.FieldRef<SavingCache.Data<Blueprint>>("buildPersistent");
+#if SFS15
+							// FolderPath 没有 Exists()，对应的是 FolderExists()。
+							if (path.FolderExists() && Blueprint.TryLoad(path, logger, out var blueprint))
+#else
 							if (path.Exists() && Blueprint.TryLoad(path, logger, out var blueprint))
+#endif
 							{
 								reference2.result = (success: true, data: blueprint, log: (logger.msg.Length > 0) ? logger.msg.ToString() : null);
 							}
@@ -53,6 +68,17 @@ public class DivertBuildSavingAndLoading
 							{
 								reference2.result = (success: false, data: null, log: null);
 							}
+						}
+						catch (System.Exception ex)
+						{
+							System.Console.Error.WriteLine("[SFS-MP] 后台线程异常（蓝图存档）: " + ex);
+							// 同理：不回填结果，主线程会一直等这个 Data.result。
+							try
+							{
+								__instance.FieldRef<SavingCache.Data<Blueprint>>("buildPersistent").result = (success: false, data: null, log: null);
+							}
+							catch { }
+						}
 						})
 					};
 					reference.thread.Start();

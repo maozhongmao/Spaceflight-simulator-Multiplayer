@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Generic;
 using Lidgren.Network;
 
@@ -17,7 +21,8 @@ public class Packet_UpdateStaging : Packet
 	{
 		((NetBuffer)msg).Write(WorldTime);
 		((NetBuffer)msg).Write(RocketId);
-		msg.WriteCollection(Stages, msg.Write);
+		Stages ??= new List<StageState>();
+					msg.WriteCollection(Stages, msg.Write);
 	}
 
 	public override void Deserialize(NetIncomingMessage msg)

@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
@@ -152,7 +156,8 @@ public class EditUI
 				if (value.controlledRocket.Value == syncedRocketID)
 				{
 					SpriteRenderer componentInChildren = __instance.mapIcon.GetComponentInChildren<SpriteRenderer>();
-					componentInChildren.color = new Color(componentInChildren.color.r * value.iconColor.r, componentInChildren.color.g * value.iconColor.g, componentInChildren.color.b * value.iconColor.b, componentInChildren.color.a);
+						if (componentInChildren != null)
+							componentInChildren.color = new Color(componentInChildren.color.r * value.iconColor.r, componentInChildren.color.g * value.iconColor.g, componentInChildren.color.b * value.iconColor.b, componentInChildren.color.a);
 					break;
 				}
 			}

@@ -12,10 +12,8 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
-    <!-- SFS 1.5 时代联机模组的二进制，仅用于协议互操作测试（见 Server/THIRD-PARTY-NOTICES.md）。
-         构建时用 -p:LegacyV323References=<目录> 指定该目录，其中需包含下面两个 DLL。 -->
-    <Reference Include="SFS-Multiplayer-1.6-NetV3.2.3" HintPath="$(LegacyV323References)\SFS-Multiplayer-1.6-NetV3.2.3.dll" Private="true" />
-    <Reference Include="Lidgren.Network" HintPath="$(LegacyV323References)\Lidgren.Network.dll" Private="true" />
+    <Reference Include="SFS-Multiplayer-1.6-NetV3.2.3" HintPath="D:\Steam\steamapps\common\Spaceflight Simulator\Spaceflight Simulator Game\Mods\SFS-Multiplayer-1.6-NetV3.2.3\SFS-Multiplayer-1.6-NetV3.2.3.dll" Private="true" />
+    <Reference Include="Lidgren.Network" HintPath="D:\Steam\steamapps\common\Spaceflight Simulator\Spaceflight Simulator Game\Mods\SFS-Multiplayer-1.6-NetV3.2.3\Lidgren.Network.dll" Private="true" />
     <Reference Include="Assembly-CSharp" HintPath="..\..\refs\v16\Assembly-CSharp.dll" Private="true" />
     <Reference Include="Assembly-CSharp-firstpass" HintPath="..\..\refs\v16\Assembly-CSharp-firstpass.dll" Private="true" />
     <Reference Include="UnityEngine" HintPath="..\..\refs\v16\UnityEngine.dll" Private="true" />

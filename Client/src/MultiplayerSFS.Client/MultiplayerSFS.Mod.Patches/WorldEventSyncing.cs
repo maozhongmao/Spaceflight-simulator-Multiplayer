@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -49,18 +53,27 @@ public class WorldEventSyncing
 		public static void SyncLaunch(Rocket[] rockets)
 		{
 			Menu.loading.Open("Sending launch request to server...");
+			// 记录发起时间：LocalManager 会在收到回执时关闭加载屏，超时也会兜底关闭
+			LocalManager.NotifyLaunchRequestSent();
+			UnityEngine.Debug.Log($"[SFS-MP] 发射请求：{rockets.Length} 枚火箭待上报（世界时间={ClientManager.world.WorldTime:F1}）");
 			Dictionary<Rocket, int> dictionary = new Dictionary<Rocket, int>(rockets.Length);
 			foreach (Rocket rocket in rockets)
 			{
 				LocalRocket localRocket = new LocalRocket(rocket);
 				int num = LocalManager.unsyncedRockets.InsertNew(localRocket);
-				ClientManager.SendPacket(new Packet_CreateRocket
+				Packet_CreateRocket request = new Packet_CreateRocket
 				{
 					WorldTime = ClientManager.world.WorldTime,
 					LocalId = num,
 					ForLaunch = true,
 					Rocket = localRocket.ToState()
-				}, (NetDeliveryMethod)67);
+				};
+				ClientManager.SendPacket(request, (NetDeliveryMethod)67);
+				// 生成新火箭之前，先清掉发射台上所有没人操控的火箭：它们在本端是带碰撞箱的实体，
+				// 和新火箭叠在一起会把发射流程卡死（程序未响应）。原生单人行为也是新火箭顶掉旧火箭。
+				LocalManager.ClearUnmannedRocketsOnLaunchpad();
+				// 登记重发：没等到回执就自动重发（同一 LocalId，服务端去重）
+				LocalManager.RegisterLaunchRequest(num, request);
 				dictionary.Add(rocket, num);
 			}
 			Rocket rocket2 = rockets.FirstOrDefault((Rocket r) => r.hasControl.Value) ?? ((rockets.Length != 0) ? rockets[0] : null);
@@ -172,11 +185,7 @@ public class WorldEventSyncing
 			int syncedRocketID = LocalManager.GetSyncedRocketID(rocket2);
 			if (syncedRocketID >= 0)
 			{
-				ClientManager.SendPacket(new Packet_UpdatePlayerControl
-				{
-					PlayerId = ClientManager.playerId,
-					RocketId = syncedRocketID
-				}, (NetDeliveryMethod)67);
+				ClientManager.RequestPlayerControl(syncedRocketID, ControlRequestOrigin.TopologyCommit);
 				return;
 			}
 			syncedRocketID = LocalManager.GetUnsyncedRocketID(rocket2);
@@ -232,12 +241,15 @@ public class WorldEventSyncing
 				LocalRocket localRocket2 = new LocalRocket(childRocket2);
 				RocketState rocket2 = localRocket2.ToState();
 				int localId = LocalManager.unsyncedRockets.InsertNew(localRocket2);
-				ClientManager.SendPacket(new Packet_CreateRocket
+				Packet_CreateRocket childRequest = new Packet_CreateRocket
 				{
 					WorldTime = ClientManager.world.WorldTime,
 					LocalId = localId,
 					Rocket = rocket2
-				}, (NetDeliveryMethod)67);
+				};
+				ClientManager.SendPacket(childRequest, (NetDeliveryMethod)67);
+				// 分离出的子火箭同样登记重发（首包容易丢，重发由服务端按 LocalId 去重）
+				LocalManager.RegisterLaunchRequest(localId, childRequest);
 			}
 		}
 	}

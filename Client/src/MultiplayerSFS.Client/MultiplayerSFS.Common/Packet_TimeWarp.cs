@@ -1,3 +1,8 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System;
 using Lidgren.Network;
 
 namespace MultiplayerSFS.Common;
@@ -41,7 +46,8 @@ public sealed class Packet_TimeWarp : Packet
 
 	public override void Deserialize(NetIncomingMessage msg)
 	{
-		Operation = (TimeWarpOperation)msg.ReadByte();
+		byte rawOperation = msg.ReadByte();
+		Operation = Enum.IsDefined(typeof(TimeWarpOperation), rawOperation) ? (TimeWarpOperation)rawOperation : TimeWarpOperation.Applied;
 		VoteId = msg.ReadInt32();
 		RequesterId = msg.ReadInt32();
 		RequesterName = msg.ReadString();

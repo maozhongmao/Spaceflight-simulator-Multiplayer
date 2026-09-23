@@ -1,3 +1,8 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System;
 using Lidgren.Network;
 
 namespace SfsMultiplayer.Protocol;
@@ -188,5 +193,20 @@ public sealed class UpdateRocketSecondaryPacket : INetData
         RawX = message.ReadFloat(); RawY = message.ReadFloat(); HorizontalX = message.ReadFloat(); HorizontalY = message.ReadFloat();
         VerticalX = message.ReadFloat(); VerticalY = message.ReadFloat(); ThrottlePercent = message.ReadFloat();
         ThrottleOn = message.ReadBoolean(); Rcs = message.ReadBoolean();
+    }
+}
+
+// Player event toast: reuses the client's existing ShowToastMessage (PacketType 21) channel.
+// Serialization mirrors Packet_UpdateRocketPrimary so server code can read/write it uniformly.
+public class PlayerEventToastPacket : INetData
+{
+    public string Message = string.Empty;
+    public void Serialize(NetOutgoingMessage message)
+    {
+        message.Write(Message ?? string.Empty);
+    }
+    public void Deserialize(NetIncomingMessage message)
+    {
+        Message = message.ReadString();
     }
 }

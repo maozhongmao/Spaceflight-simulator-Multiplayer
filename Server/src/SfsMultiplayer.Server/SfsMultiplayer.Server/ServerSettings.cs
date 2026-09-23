@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -26,6 +30,10 @@ public sealed class ServerSettings
     public P2PSettings P2P { get; set; } = new();
 
     public ExperimentalAccessSettings ExperimentalAccess { get; set; } = new();
+
+    // 实验性功能开关：DLL 补丁（插件）系统。开启后服务器才生成 plugins/ 目录并加载其中的补丁 DLL。
+    [YamlMember(Alias = "experimental_patches")]
+    public bool ExperimentalPatches { get; set; }
 
     [JsonIgnore]
     [YamlIgnore]
@@ -149,11 +157,14 @@ debug: false
 experimental_access:
   passphrase: ""
 
+# 实验性功能：DLL 补丁（插件）系统。设为 true 时服务器生成 plugins/ 目录并加载其中的补丁 DLL。
+experimental_patches: false
+
 # Experimental P2P feasibility settings.
 # IPv6 endpoints are always represented as quoted strings in YAML.
 p2p:
   enabled: true
-  proximity_meters: 5000
+  proximity_meters: 10000
   validation_interval_seconds: 1
   peer_timeout_seconds: 3
   transition_buffer_seconds: 10

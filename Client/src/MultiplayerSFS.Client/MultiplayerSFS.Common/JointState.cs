@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Generic;
 using Lidgren.Network;
 using SFS.World;
@@ -22,8 +26,8 @@ public class JointState : INetData
 
 	public JointState(JointSave save, Dictionary<int, int> partIndexToID)
 	{
-		id_A = partIndexToID[save.partIndex_A];
-		id_B = partIndexToID[save.partIndex_B];
+		id_A = partIndexToID.TryGetValue(save.partIndex_A, out var a) ? a : -1;
+		id_B = partIndexToID.TryGetValue(save.partIndex_B, out var b) ? b : -1;
 	}
 
 	public void Serialize(NetOutgoingMessage msg)

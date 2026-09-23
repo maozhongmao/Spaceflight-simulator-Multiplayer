@@ -1,0 +1,285 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using HarmonyLib;
+using Lidgren.Network;
+using MultiplayerSFS.Common;
+using SFS;
+using SFS.Builds;
+using SFS.Career;
+using SFS.Input;
+using SFS.Stats;
+using SFS.UI;
+using SFS.World;
+using SFS.World.Maps;
+using SFS.WorldBase;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace MultiplayerSFS.Mod.Patches;
+
+// 发射台坐标的取值入口。放在本文件是刻意的：Base 这个类型只在当前编译单元的
+// using 集合下可见（同工程里的 LocalManager.cs 直接写 Base 会 CS0103）。
+// 只暴露 double，不暴露 Double2，避免再引入命名空间依赖。
+public static class LaunchpadReference
+{
+    public static bool TryGetPosition(out double x, out double y, out string address)
+    {
+        x = 0.0;
+        y = 0.0;
+        address = null;
+        try
+        {
+            var loader = Base.planetLoader;
+            var center = loader == null ? null : loader.spaceCenter;
+            if (center == null) return false;
+            x = center.LaunchPadLocation.position.x;
+            y = center.LaunchPadLocation.position.y;
+            address = center.address;
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+}
+
+public class DivertLoading
+{
+	[HarmonyPatch(typeof(SavingCache), "Preload_WorldPersistent")]
+	public class SavingCache_Preload_WorldPersistent
+	{
+		public static bool Prefix(SavingCache __instance, bool needsRocketsAndBranches)
+		{
+			if (ClientManager.multiplayerEnabled.Value)
+			{
+				ref SavingCache.Data<WorldSave> reference = ref __instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent");
+				if (reference == null || (needsRocketsAndBranches && (reference.result.data?.rockets == null || reference.result.data?.branches == null)))
+				{
+					reference = new SavingCache.Data<WorldSave>
+					{
+						thread = new Thread((ThreadStart)delegate
+						{
+							try
+							{
+								__instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent").result = (success: true, data: WorldSave.CreateEmptyQuicksave(Application.version), log: null);
+							}
+							catch (System.Exception ex)
+							{
+								Debug.LogError("[SFS-MP] 后台线程异常（空世界存档构造）: " + ex);
+								// 必须给出一个结果：SavingCache 的主线程在等 Data.result，线程一拍异常就没人回填，
+								// 加载流程会永远等下去 —— 表现就是"无响应/卡死"（比崩溃更难查）。
+								try
+								{
+									__instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent").result = (success: false, data: null, log: null);
+								}
+								catch { }
+							}
+						})
+					};
+					reference.thread.Start();
+				}
+				return false;
+			}
+			return true;
+		}
+	}
+
+	[HarmonyPatch(typeof(GameManager), "LoadPersistentAndLaunch")]
+	public class GameManager_LoadPersistentAndLaunch
+	{
+		public static bool Prefix(GameManager __instance)
+		{
+			if (ClientManager.multiplayerEnabled.Value)
+			{
+				SavingCache.main.Preload_WorldPersistent(needsRocketsAndBranches: true);
+				SavingCache.main.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent") = null;
+				AccessTools.Method(typeof(GameManager), "ClearWorld").Invoke(__instance, null);
+				CareerState.main.SetState(new WorldSave.CareerState());
+				WorldTime.main.worldTime = ClientManager.world.WorldTime;
+				WorldTime.main.SetTimewarpIndex_ForLoad(0);
+				WorldView.main.SetViewLocation(Base.planetLoader.spaceCenter.LaunchPadLocation);
+				WorldView.main.viewDistance.Value = 32f;
+				LocalManager.OnLoadWorld();
+				AstronautState.main.state = new WorldSave.Astronauts();
+				Map.manager.mapMode.Value = false;
+				Map.view.view.target.Value = Base.planetLoader.spaceCenter.Planet.mapPlanet;
+				Map.view.view.position.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position;
+				Map.view.view.distance.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position.y * 0.65;
+				Map.navigation.SetTarget(Map.view.view.target.Value);
+				PlayerController.main.player.Value = null;
+				PlayerController.main.cameraDistance.Value = 32f;
+				if (__instance.environment.environments != null)
+				{
+					SFS.World.Environment[] environments = __instance.environment.environments;
+					for (int i = 0; i < environments.Length; i++)
+					{
+						environments[i].terrain?.LoadFully();
+					}
+				}
+				LogManager.main.ClearBranches();
+				if (SavingCache.main.TryLoadBuildPersistent(MsgDrawer.main, out var buildPersistent, eraseCache: false))
+				{
+					RocketManager.SpawnBlueprint(buildPersistent);
+				}
+				GameCamerasManager.main.InstantlyRotateCamera();
+				return false;
+			}
+			return true;
+		}
+	}
+
+	[HarmonyPatch(typeof(BuildManager), "<Launch>g__Launch_2|33_5")]
+	public static class BuildManager_Launch_2
+	{
+		[HarmonyReversePatch(HarmonyReversePatchType.Original)]
+		public static void OrginalMethod(bool forceVertical)
+		{
+			throw new NotImplementedException("Harmony Reverse Patch");
+		}
+
+		public static bool Prefix(bool forceVertical)
+		{
+			if ((bool)ClientManager.multiplayerEnabled && BuildManager.main.buildGrid.activeGrid.partsHolder.parts.Count > 0)
+			{
+				// 不再走 ReplacementMethod 的"发射台占用"等待逻辑（原版逻辑见下方注释）：
+				// 火箭之间已经按对关闭碰撞（见 LocalManager.UpdateLaunchpadCollisionIsolation），
+				// 台上停着别人的火箭也不会挡路，再拦发射只会让"第一次发射"发不出去，
+				// 而且那个对话框的 "Clear Launchpad" 会直接销毁台上的火箭。直接按原版流程发射。
+				OrginalMethod(forceVertical);
+				return false;
+			}
+			return true;
+		}
+
+		// 已停用（保留以便回滚）：原实现会在发射前循环等待"发射台清空"，
+		// 台上停着任何火箭都要等对方离开或点 "Clear Launchpad"（会销毁台上火箭）才能发射。
+		// 现在的发射路径见上方 Prefix：直接调 OrginalMethod。
+		public static async void ReplacementMethod(bool forceVertical)
+		{
+			HashSet<int> rockets = new HashSet<int>();
+			HashSet<int> players = new HashSet<int>();
+			bool confirmationOpen = true;
+			bool confirmationVisible = true;
+			int stackCount = ScreenManager.main.GetStackCount();
+			while (confirmationOpen)
+			{
+				if (UpdateLaunchpadStatus(ref rockets, ref players, out var updateText))
+				{
+					OrginalMethod(forceVertical);
+					break;
+				}
+				if (confirmationVisible && updateText)
+				{
+					ScreenManager.main.CloseStack();
+					confirmationOpen = true;
+					if (players.Count > 0)
+					{
+						string message = "Waiting for the following players to leave the launchpad:\n";
+						message += string.Join("\n", players.Select((int id) => LocalManager.players[id].username));
+						Func<Screen_Base> screen = MenuGenerator.CreateMenu(CancelButton.Close, CloseMode.Current, OnOpen, OnClose, TextBuilder.CreateText(() => message), ButtonBuilder.CreateButton(null, () => "Close", OnClose, CloseMode.Current));
+						ScreenManager.main.OpenScreen(screen);
+					}
+					else
+					{
+						string message2;
+						if (rockets.Count == 1)
+						{
+							message2 = "There is currently 1 uncontrolled rocket blocking the launchpad...";
+						}
+						else
+						{
+							message2 = $"There are currently {rockets.Count} uncontrolled rockets blocking the launchpad...";
+						}
+						Func<Screen_Base> screen2 = MenuGenerator.CreateMenu(CancelButton.Close, CloseMode.Current, OnOpen, OnClose, TextBuilder.CreateText(() => message2), ElementGenerator.HorizontalGroup(delegate(HorizontalLayoutGroup group)
+						{
+							group.spacing = 10f;
+							((RectTransform)group.transform).pivot = new Vector2(0.5f, 0.5f);
+						}, true, true, ButtonBuilder.CreateButton(null, () => "Close", OnClose, CloseMode.Current), ButtonBuilder.CreateButton(null, () => "Clear Launchpad", ClearLaunchpad, CloseMode.Current)));
+						ScreenManager.main.OpenScreen(screen2);
+					}
+				}
+				await Task.Delay(500);
+			}
+			void ClearLaunchpad()
+			{
+				confirmationOpen = false;
+				foreach (int item in rockets)
+				{
+					LocalManager.syncedRockets.Remove(item);
+					LocalManager.updateAuthority.Remove(item);
+					ClientManager.world.rockets.Remove(item);
+					ClientManager.SendPacket(new Packet_DestroyRocket
+					{
+						RocketId = item
+					}, (NetDeliveryMethod)67);
+				}
+				OrginalMethod(forceVertical);
+			}
+			void OnClose()
+			{
+				if (ScreenManager.main.GetStackCount() > stackCount)
+				{
+					confirmationVisible = false;
+				}
+				else
+				{
+					confirmationOpen = false;
+				}
+			}
+			void OnOpen()
+			{
+				confirmationVisible = true;
+			}
+		}
+
+		private static bool UpdateLaunchpadStatus(ref HashSet<int> rockets, ref HashSet<int> players, out bool updateText)
+		{
+			HashSet<int> hashSet = new HashSet<int>();
+			HashSet<int> hashSet2 = new HashSet<int>();
+			foreach (KeyValuePair<int, RocketState> rocket in ClientManager.world.rockets)
+			{
+				if (!GameManager_IsOnLaunchpad.IsOnLaunchpad(rocket.Value.location.address, rocket.Value.location.position))
+				{
+					continue;
+				}
+				Debug.Log(rocket.Value.location.position);
+				hashSet.Add(rocket.Key);
+				foreach (KeyValuePair<int, LocalPlayer> player in LocalManager.players)
+				{
+					if ((int)player.Value.controlledRocket == rocket.Key)
+					{
+						hashSet2.Add(player.Key);
+						break;
+					}
+				}
+			}
+			if (hashSet2.Count == 0 && hashSet.Count == 0)
+			{
+				updateText = false;
+				return true;
+			}
+			updateText = !hashSet2.SetEquals(players) || !hashSet.SetEquals(rockets);
+			rockets = hashSet;
+			players = hashSet2;
+			return false;
+		}
+	}
+
+	[HarmonyPatch(typeof(GameManager), "IsOnLaunchpad")]
+	public static class GameManager_IsOnLaunchpad
+	{
+		[HarmonyReversePatch(HarmonyReversePatchType.Original)]
+		public static bool IsOnLaunchpad(string planet, Double2 postion)
+		{
+			throw new NotImplementedException("Harmony Reverse Patch");
+		}
+	}
+}

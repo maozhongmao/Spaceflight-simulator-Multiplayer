@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 
 namespace MultiplayerSFS.Mod;
@@ -19,8 +23,8 @@ public sealed class ControlOwnershipCoordinator
 
     public bool Request(int rocketId, ControlRequestOrigin origin)
     {
-        if (rocketId < 0 || rocketId == ConfirmedRocketId)
-            return false;
+        if (rocketId < 0 || rocketId == ConfirmedRocketId || rocketId == PendingRocketId)
+        	return false;
 
         PendingRocketId = rocketId;
         PendingOrigin = origin;
@@ -38,6 +42,13 @@ public sealed class ControlOwnershipCoordinator
     public void Clear()
     {
         ConfirmedRocketId = -1;
+        PendingRocketId = -1;
+        PendingOrigin = null;
+    }
+
+    // 只清 Pending（超时/被拒绝时用）：保留 ConfirmedRocketId，玩家不至于被踢出当前火箭
+    public void ClearPending()
+    {
         PendingRocketId = -1;
         PendingOrigin = null;
     }

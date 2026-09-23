@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<Weavers xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="FodyWeavers.xsd">
+  <Costura>
+    <!-- 只排除游戏/Unity 程序集，其余被引用为 Private=true 的程序集（Lidgren.Network）自动内嵌 -->
+    <ExcludeAssemblies>
+      Assembly-CSharp
+      Assembly-CSharp-firstpass
+      0Harmony
+      UITools
+      Unity.TextMeshPro
+      UnityEngine
+      UnityEngine.CoreModule
+      UnityEngine.InputLegacyModule
+      UnityEngine.IMGUIModule
+      UnityEngine.Physics2DModule
+      UnityEngine.TextRenderingModule
+      UnityEngine.UI
+      UnityEngine.UnityAnalyticsModule
+    </ExcludeAssemblies>
+    <Unmanaged64Assemblies />
+    <CreateTemporaryAssemblies>false</CreateTemporaryAssemblies>
+    <DisableCleanup>false</DisableCleanup>
+    <LoadAtModuleInit>true</LoadAtModuleInit>
+  </Costura>
+</Weavers>

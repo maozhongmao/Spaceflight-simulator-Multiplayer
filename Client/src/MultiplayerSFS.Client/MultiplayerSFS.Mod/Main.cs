@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
@@ -17,19 +21,52 @@ public class Main : ModLoader.Mod
 {
 	public static Main main;
 
+#if SFS15
+	// SFS 1.5 没有 IFolder/DefaultFolder（那是 1.6 的 SAF 存储抽象），磁盘目录一律用具体的 FolderPath。
+	public static FolderPath buildPersistentFolder;
+#else
 	public static IFolder buildPersistentFolder;
+#endif
 
 	public override string ModNameID => "multiplayersfs";
 
-	public override string DisplayName => "SFS Multiplayer V1.1.4";
+	// 版本号的唯一真实来源是 csproj 的 AssemblyName（SFS-Multiplayer-1.6-V<版本>）。
+	// 这里以前是写死的字符串，从 .21 之后就没再改过 —— 游戏启动日志因此一直打印
+	// "Loaded SFS Multiplayer V1.2.2.21"，排查时会被误导成"装错模组了"。
+	internal static class ModVersionInfo
+	{
+		public static readonly string Version = Extract();
+
+		private static string Extract()
+		{
+			try
+			{
+				string name = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name ?? string.Empty;
+				int index = name.LastIndexOf("-V", System.StringComparison.Ordinal);
+				return index >= 0 ? name.Substring(index + 2) : "unknown";
+			}
+			catch (System.Exception)
+			{
+				return "unknown";
+			}
+		}
+	}
+
+	public override string DisplayName => "SFS Multiplayer V" + ModVersionInfo.Version;
 
 	public override string Author => "Astro The Rabbit, VerdiX";
 
+#if SFS15
+	// 1.5 包必须把门槛降到 1.5，否则 1.6 的门槛会让 1.5 游戏拒绝加载整个模组
+	//（日志原话："This game version is too low for SFS Multiplayer V1.2.4" → 主菜单没有多人按钮）。
+	public override string MinimumGameVersionNecessary => "1.5.0.0";
+#else
 	public override string MinimumGameVersionNecessary => "1.6.00.16";
+#endif
 
-	public override string ModVersion => "1.1.4";
+	public override string ModVersion => ModVersionInfo.Version;
 
-	public override string Description => "SFS Multiplayer V1.1.4";
+	public override string Description => "SFS Multiplayer V" + ModVersionInfo.Version;
 
 	public override Dictionary<string, string> Dependencies { get; } = new Dictionary<string, string> { { "UITools", "1.1.5" } };
 
@@ -46,13 +83,13 @@ public class Main : ModLoader.Mod
 		NetworkDebugOverlay.Create();
 		SceneHelper.OnWorldSceneLoaded += (Action)delegate
 		{
-				// ChatWindow.CreateUI("world");
+			// ChatWindow.CreateUI("world");
 		};
 		SceneHelper.OnWorldSceneUnloaded += (Action)delegate
 		{
 			if ((bool)ClientManager.multiplayerEnabled)
 			{
-				LocalManager.Player.controlledRocket.Value = -1;
+				if (LocalManager.Player != null) LocalManager.Player.controlledRocket.Value = -1;
 				LocalManager.unsyncedToControl = -1;
 				LocalManager.pendingControlLocalIds.Clear();
 				ClientManager.SendPacket(new Packet_UpdatePlayerControl
@@ -70,7 +107,11 @@ public class Main : ModLoader.Mod
 		SceneHelper.OnHomeSceneLoaded += new Action(AddMultiplayerButton);
 		AddMultiplayerButton();
 		FolderPath blueprintPath = new FolderPath(base.ModFolder).Extend(".BlueprintPersistent");
+#if SFS15
+		buildPersistentFolder = blueprintPath;
+#else
 		buildPersistentFolder = new DefaultFolder(blueprintPath.ToString());
+#endif
 		Application.quitting += delegate
 		{
 			ClientManager.Disconnect("Application quitting");

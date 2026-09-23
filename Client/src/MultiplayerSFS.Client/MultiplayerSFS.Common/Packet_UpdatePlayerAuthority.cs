@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.Collections.Generic;
 using Lidgren.Network;
@@ -12,7 +16,8 @@ public class Packet_UpdatePlayerAuthority : Packet
 
 	public override void Serialize(NetOutgoingMessage msg)
 	{
-		msg.WriteCollection((ICollection<int>)RocketIds, (Action<int>)((NetBuffer)msg).Write);
+		RocketIds ??= new HashSet<int>();
+					msg.WriteCollection((ICollection<int>)RocketIds, (Action<int>)((NetBuffer)msg).Write);
 	}
 
 	public override void Deserialize(NetIncomingMessage msg)

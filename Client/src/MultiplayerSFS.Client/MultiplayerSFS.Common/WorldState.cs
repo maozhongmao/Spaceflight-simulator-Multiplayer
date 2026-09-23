@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -148,7 +152,7 @@ public class WorldState
 		}
 		List<RocketSave> obj = (List<RocketSave>)array3[1];
 		initWorldTime = worldState.worldTime;
-		difficulty = worldSettings.difficulty.difficulty;
+		difficulty = worldSettings?.difficulty?.difficulty ?? Difficulty.DifficultyType.Normal;
 		rockets = new Dictionary<int, RocketState>();
 		foreach (RocketSave item in obj)
 		{

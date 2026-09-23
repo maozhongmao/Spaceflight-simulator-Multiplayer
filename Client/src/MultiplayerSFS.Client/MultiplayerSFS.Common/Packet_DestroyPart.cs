@@ -1,3 +1,8 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System;
 using Lidgren.Network;
 using SFS.World;
 
@@ -32,6 +37,10 @@ public class Packet_DestroyPart : Packet
 		RocketId = ((NetBuffer)msg).ReadInt32();
 		PartId = ((NetBuffer)msg).ReadInt32();
 		CreateExplosion = ((NetBuffer)msg).ReadBoolean();
-		Reason = (DestructionReason)((NetBuffer)msg).ReadByte();
+		byte rawReason = ((NetBuffer)msg).ReadByte();
+		// 必须转成枚举的基础类型（int）再交给 Enum.IsDefined：
+		// 传 byte 会抛 ArgumentException("Object must be the same type as the enum")，
+		// 导致每个 DestroyPart 包解析失败、部件摧毁事件全部丢失（火箭状态随之不同步）。
+		Reason = Enum.IsDefined(typeof(DestructionReason), (int)rawReason) ? (DestructionReason)rawReason : DestructionReason.Intentional;
 	}
 }

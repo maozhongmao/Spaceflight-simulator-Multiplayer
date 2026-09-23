@@ -1,233 +1,352 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Reflection;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using HarmonyLib;
-using Lidgren.Network;
-using MultiplayerSFS.Common;
+using UnityEngine;
 using SFS;
+using SFS.UI;
+using SFS.Stats;
+using SFS.World;
+using SFS.Input;
 using SFS.Builds;
 using SFS.Career;
-using SFS.Input;
-using SFS.Stats;
-using SFS.UI;
-using SFS.World;
-using SFS.World.Maps;
 using SFS.WorldBase;
-using UnityEngine;
-using UnityEngine.UI;
+using SFS.World.Maps;
+using MultiplayerSFS.Common;
+using Environment = SFS.World.Environment;
 
-namespace MultiplayerSFS.Mod.Patches;
-
-public class DivertLoading
+namespace MultiplayerSFS.Mod.Patches
 {
-	[HarmonyPatch(typeof(SavingCache), "Preload_WorldPersistent")]
-	public class SavingCache_Preload_WorldPersistent
-	{
-		public static bool Prefix(SavingCache __instance, bool needsRocketsAndBranches)
-		{
-			if (ClientManager.multiplayerEnabled.Value)
-			{
-				ref SavingCache.Data<WorldSave> reference = ref __instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent");
-				if (reference == null || (needsRocketsAndBranches && (reference.result.data.rockets == null || reference.result.data.branches == null)))
-				{
-					reference = new SavingCache.Data<WorldSave>
-					{
-						thread = new Thread((ThreadStart)delegate
-						{
-							__instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent").result = (success: true, data: WorldSave.CreateEmptyQuicksave(Application.version), log: null);
-						})
-					};
-					reference.thread.Start();
-				}
-				return false;
-			}
-			return true;
-		}
-	}
+    /// <summary>
+    /// Diverts loading of the world when in multiplayer.
+    /// </summary>
+    // TODO: These patches should probably be transpilers instead of overriding prefixes.
+    public class DivertLoading
+    {
+        [HarmonyPatch(typeof(SavingCache), nameof(SavingCache.Preload_WorldPersistent))]
+        public class SavingCache_Preload_WorldPersistent
+        {
+            public static bool Prefix(SavingCache __instance, bool needsRocketsAndBranches)
+            {
+                if (ClientManager.multiplayerEnabled.Value)
+                {
+                    ref SavingCache.Data<WorldSave> worldPersistent = ref __instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent");
 
-	[HarmonyPatch(typeof(GameManager), "LoadPersistentAndLaunch")]
-	public class GameManager_LoadPersistentAndLaunch
-	{
-		public static bool Prefix(GameManager __instance)
-		{
-			if (ClientManager.multiplayerEnabled.Value)
-			{
-				SavingCache.main.Preload_WorldPersistent(needsRocketsAndBranches: true);
-				SavingCache.main.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent") = null;
-				AccessTools.Method(typeof(GameManager), "ClearWorld").Invoke(__instance, null);
-				CareerState.main.SetState(new WorldSave.CareerState());
-				WorldTime.main.worldTime = ClientManager.world.WorldTime;
-				WorldTime.main.SetTimewarpIndex_ForLoad(0);
-				WorldView.main.SetViewLocation(Base.planetLoader.spaceCenter.LaunchPadLocation);
-				WorldView.main.viewDistance.Value = 32f;
-				LocalManager.OnLoadWorld();
-				AstronautState.main.state = new WorldSave.Astronauts();
-				Map.manager.mapMode.Value = false;
-				Map.view.view.target.Value = Base.planetLoader.spaceCenter.Planet.mapPlanet;
-				Map.view.view.position.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position;
-				Map.view.view.distance.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position.y * 0.65;
-				Map.navigation.SetTarget(Map.view.view.target.Value);
-				PlayerController.main.player.Value = null;
-				PlayerController.main.cameraDistance.Value = 32f;
-				if (__instance.environment.environments != null)
-				{
-					SFS.World.Environment[] environments = __instance.environment.environments;
-					for (int i = 0; i < environments.Length; i++)
-					{
-						environments[i].terrain?.LoadFully();
-					}
-				}
-				LogManager.main.ClearBranches();
-				if (SavingCache.main.TryLoadBuildPersistent(MsgDrawer.main, out var buildPersistent, eraseCache: false))
-				{
-					RocketManager.SpawnBlueprint(buildPersistent);
-				}
-				GameCamerasManager.main.InstantlyRotateCamera();
-				return false;
-			}
-			return true;
-		}
-	}
+                    if (worldPersistent == null || needsRocketsAndBranches && (worldPersistent.result.data.rockets == null || worldPersistent.result.data.branches == null))
+                    {
+                        worldPersistent = new SavingCache.Data<WorldSave>
+                        {
+                            thread = new Thread
+                            (
+                                (ThreadStart) delegate
+                                {
+                                    __instance.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent").result = (true, WorldSave.CreateEmptyQuicksave(Application.version), null);
+                                }
+                            )
+                        };
+                        worldPersistent.thread.Start();
+                    }
+                    return false;
+                }
+                return true;
+            }
+        }
 
-	[HarmonyPatch(typeof(BuildManager), "<Launch>g__Launch_2|33_5")]
-	public static class BuildManager_Launch_2
-	{
-		[HarmonyReversePatch(HarmonyReversePatchType.Original)]
-		public static void OrginalMethod(bool forceVertical)
-		{
-			throw new NotImplementedException("Harmony Reverse Patch");
-		}
+        [HarmonyPatch(typeof(GameManager), "LoadPersistentAndLaunch")]
+        public class GameManager_LoadPersistentAndLaunch
+        {
+            public static bool Prefix(GameManager __instance)
+            {
+                if (ClientManager.multiplayerEnabled.Value)
+                {
+#if SFS15
+                    UnityEngine.Debug.Log("[SFS-MP][1.5] step 0 enter prefix (Preload next)");
+#endif
+                    SavingCache.main.Preload_WorldPersistent(true);
+                    SavingCache.main.FieldRef<SavingCache.Data<WorldSave>>("worldPersistent") = null;
+                    
+                    AccessTools.Method(typeof(GameManager), "ClearWorld").Invoke(__instance, null);
+                    CareerState.main.SetState(new WorldSave.CareerState());
 
-		public static bool Prefix(bool forceVertical)
-		{
-			if ((bool)ClientManager.multiplayerEnabled && BuildManager.main.buildGrid.activeGrid.partsHolder.parts.Count > 0)
-			{
-				ReplacementMethod(forceVertical);
-				return false;
-			}
-			return true;
-		}
+                    // // Branches, challenges, logs
+                    // TODO: Fix up errors related to branches, etc
+                    
+                    WorldTime.main.worldTime = ClientManager.world.WorldTime;
+                    WorldTime.main.SetTimewarpIndex_ForLoad(0);
+                    WorldView.main.SetViewLocation(Base.planetLoader.spaceCenter.LaunchPadLocation);
+                    WorldView.main.viewDistance.Value = 32f;
 
-		public static async void ReplacementMethod(bool forceVertical)
-		{
-			HashSet<int> rockets = new HashSet<int>();
-			HashSet<int> players = new HashSet<int>();
-			bool confirmationOpen = true;
-			bool confirmationVisible = true;
-			int stackCount = ScreenManager.main.GetStackCount();
-			while (confirmationOpen)
-			{
-				if (UpdateLaunchpadStatus(ref rockets, ref players, out var updateText))
-				{
-					OrginalMethod(forceVertical);
-					break;
-				}
-				if (confirmationVisible && updateText)
-				{
-					ScreenManager.main.CloseStack();
-					confirmationOpen = true;
-					if (players.Count > 0)
-					{
-						string message = "Waiting for the following players to leave the launchpad:\n";
-						message += string.Join("\n", players.Select((int id) => LocalManager.players[id].username));
-						Func<Screen_Base> screen = MenuGenerator.CreateMenu(CancelButton.Close, CloseMode.Current, OnOpen, OnClose, TextBuilder.CreateText(() => message), ButtonBuilder.CreateButton(null, () => "Close", OnClose, CloseMode.Current));
-						ScreenManager.main.OpenScreen(screen);
-					}
-					else
-					{
-						string message2;
-						if (rockets.Count == 1)
-						{
-							message2 = "There is currently 1 uncontrolled rocket blocking the launchpad...";
-						}
-						else
-						{
-							message2 = $"There are currently {rockets.Count} uncontrolled rockets blocking the launchpad...";
-						}
-						Func<Screen_Base> screen2 = MenuGenerator.CreateMenu(CancelButton.Close, CloseMode.Current, OnOpen, OnClose, TextBuilder.CreateText(() => message2), ElementGenerator.HorizontalGroup(delegate(HorizontalLayoutGroup group)
-						{
-							group.spacing = 10f;
-							((RectTransform)group.transform).pivot = new Vector2(0.5f, 0.5f);
-						}, true, true, ButtonBuilder.CreateButton(null, () => "Close", OnClose, CloseMode.Current), ButtonBuilder.CreateButton(null, () => "Clear Launchpad", ClearLaunchpad, CloseMode.Current)));
-						ScreenManager.main.OpenScreen(screen2);
-					}
-				}
-				await Task.Delay(500);
-			}
-			void ClearLaunchpad()
-			{
-				confirmationOpen = false;
-				foreach (int item in rockets)
-				{
-					LocalManager.syncedRockets.Remove(item);
-					LocalManager.updateAuthority.Remove(item);
-					ClientManager.world.rockets.Remove(item);
-					ClientManager.SendPacket(new Packet_DestroyRocket
-					{
-						RocketId = item
-					}, (NetDeliveryMethod)67);
-				}
-				OrginalMethod(forceVertical);
-			}
-			void OnClose()
-			{
-				if (ScreenManager.main.GetStackCount() > stackCount)
-				{
-					confirmationVisible = false;
-				}
-				else
-				{
-					confirmationOpen = false;
-				}
-			}
-			void OnOpen()
-			{
-				confirmationVisible = true;
-			}
-		}
+#if SFS15
+                    UnityEngine.Debug.Log("[SFS-MP][1.5] step L OnLoadWorld");
+#endif
+                    LocalManager.OnLoadWorld();
 
-		private static bool UpdateLaunchpadStatus(ref HashSet<int> rockets, ref HashSet<int> players, out bool updateText)
-		{
-			HashSet<int> hashSet = new HashSet<int>();
-			HashSet<int> hashSet2 = new HashSet<int>();
-			foreach (KeyValuePair<int, RocketState> rocket in ClientManager.world.rockets)
-			{
-				if (!GameManager_IsOnLaunchpad.IsOnLaunchpad(rocket.Value.location.address, rocket.Value.location.position))
-				{
-					continue;
-				}
-				Debug.Log(rocket.Value.location.position);
-				hashSet.Add(rocket.Key);
-				foreach (KeyValuePair<int, LocalPlayer> player in LocalManager.players)
-				{
-					if ((int)player.Value.controlledRocket == rocket.Key)
-					{
-						hashSet2.Add(player.Key);
-						break;
-					}
-				}
-			}
-			if (hashSet2.Count == 0 && hashSet.Count == 0)
-			{
-				updateText = false;
-				return true;
-			}
-			updateText = !hashSet2.SetEquals(players) || !hashSet.SetEquals(rockets);
-			rockets = hashSet;
-			players = hashSet2;
-			return false;
-		}
-	}
+#if SFS15
+                    UnityEngine.Debug.Log("[SFS-MP][1.5] step M AstronautState");
+#endif
+                    AstronautState.main.state = new WorldSave.Astronauts();
+                    // // Astronauts loading
+                    
+                    Map.manager.mapMode.Value = false;
+                    Map.view.view.target.Value = Base.planetLoader.spaceCenter.Planet.mapPlanet;
+                    Map.view.view.position.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position;
+                    Map.view.view.distance.Value = Base.planetLoader.spaceCenter.LaunchPadLocation.position.y * 0.65;
+                    Map.navigation.SetTarget(Map.view.view.target.Value);
+                   
+                    PlayerController.main.player.Value = null;
+                    PlayerController.main.cameraDistance.Value = 32f;
+                    
+                    if (__instance.environment.environments != null)
+                    {
+                        Environment[] environments = __instance.environment.environments;
+                        foreach (Environment environment in environments)
+                        {
+                            environment.terrain?.LoadFully();
+                        }
+                    }
+#if SFS15
+                    UnityEngine.Debug.Log("[SFS-MP][1.5] step N ClearBranches");
+#endif
+                    LogManager.main.ClearBranches();
 
-	[HarmonyPatch(typeof(GameManager), "IsOnLaunchpad")]
-	public static class GameManager_IsOnLaunchpad
-	{
-		[HarmonyReversePatch(HarmonyReversePatchType.Original)]
-		public static bool IsOnLaunchpad(string planet, Double2 postion)
-		{
-			throw new NotImplementedException("Harmony Reverse Patch");
-		}
-	}
+                    if (SavingCache.main.TryLoadBuildPersistent(MsgDrawer.main, out Blueprint buildPersistent, eraseCache: false))
+                    {
+                        RocketManager.SpawnBlueprint(buildPersistent);
+                    }
+#if SFS15
+                    UnityEngine.Debug.Log("[SFS-MP][1.5] step O InstantlyRotateCamera");
+#endif
+                    GameCamerasManager.main.InstantlyRotateCamera();
+
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Prevents launching a rocket in multiplayer if the launchpad is currently occupied by another player.
+        /// Also allows a launching player to clear the launchpad if it's only occupied by non-player rockets.
+        /// </summary>
+        [HarmonyPatch(typeof(BuildManager), "<Launch>g__Launch_2|33_5")]
+        public static class BuildManager_Launch_2
+        {
+            [HarmonyReversePatch]
+            public static void OrginalMethod(bool forceVertical) => throw new NotImplementedException("Harmony Reverse Patch");
+
+            public static bool Prefix(bool forceVertical)
+            {
+                if (ClientManager.multiplayerEnabled && BuildManager.main.buildGrid.activeGrid.partsHolder.parts.Count > 0)
+                {
+                    ReplacementMethod(forceVertical);
+                    return false;
+                }
+                return true;
+            }
+
+            public static async void ReplacementMethod(bool forceVertical)
+            {
+                HashSet<int> rockets = new HashSet<int>();
+                HashSet<int> players = new HashSet<int>();
+
+                bool confirmationOpen = true;
+                bool confirmationVisible = true;
+                int stackCount = ScreenManager.main.GetStackCount();
+
+                void OnOpen()
+                {
+                    confirmationVisible = true;
+                }
+
+                void OnClose()
+                {
+                    // * `OnClose` is technically also closed when another screen is opened after the confirmation pop-up (like the debug console).
+                    // * Therefore we have to differentiate between the confirmation pop-up actually being closed, or it being hidden by another screen.
+                    if (ScreenManager.main.GetStackCount() > stackCount)
+                    {
+                        confirmationVisible = false;
+                    }
+                    else
+                    {
+                        confirmationOpen = false;
+                    }
+                }
+
+                void ClearLaunchpad()
+                {
+                    confirmationOpen = false;
+                    foreach (int id in rockets)
+                    {
+                        LocalManager.syncedRockets.Remove(id);
+                        LocalManager.updateAuthority.Remove(id);
+                        ClientManager.world.rockets.Remove(id);
+                        ClientManager.SendPacket
+                        (
+                            new Packet_DestroyRocket()
+                            {
+                                RocketId = id,
+                            }
+                        );
+                    }
+                    OrginalMethod(forceVertical);
+                }
+
+                while (confirmationOpen)
+                {
+                    if (UpdateLaunchpadStatus(ref rockets, ref players, out bool updateText))
+                    {
+                        OrginalMethod(forceVertical);
+                        return;
+                    }
+                    else if (confirmationVisible && updateText)
+                    {
+                        ScreenManager.main.CloseStack();
+                        confirmationOpen = true;
+                        if (players.Count > 0)
+                        {
+                            string message = "Waiting for the following players to leave the launchpad:\n";
+                            message += string.Join("\n", players.Select(id => LocalManager.players[id].username));
+
+                            Func<Screen_Base> menu = MenuGenerator.CreateMenu
+                            (
+                                CancelButton.Close,
+                                CloseMode.Current,
+                                OnOpen,
+                                OnClose,
+                                TextBuilder.CreateText(() => message),
+                                ButtonBuilder.CreateButton
+                                (
+                                    null,
+                                    () => "Close",
+                                    OnClose,
+                                    CloseMode.Current
+                                )
+                            );
+                            ScreenManager.main.OpenScreen(menu);
+                        }
+                        else
+                        {
+                            string message;
+                            if (rockets.Count == 1)
+                                message = "There is currently 1 uncontrolled rocket blocking the launchpad...";
+                            else
+                                message = $"There are currently {rockets.Count} uncontrolled rockets blocking the launchpad...";
+
+                            Func<Screen_Base> menu = MenuGenerator.CreateMenu
+                            (
+                                CancelButton.Close,
+                                CloseMode.Current,
+                                OnOpen,
+                                OnClose,
+                                TextBuilder.CreateText(() => message),
+                                ElementGenerator.HorizontalGroup
+                                (
+                                    group =>
+                                    {
+                                        group.spacing = 10f;
+                                        ((RectTransform) group.transform).pivot = new Vector2(0.5f, 0.5f);
+                                    },
+                                    true,
+                                    true,
+                                    ButtonBuilder.CreateButton
+                                    (
+                                        null,
+                                        () => "Close",
+                                        OnClose,
+                                        CloseMode.Current
+                                    ),
+                                    ButtonBuilder.CreateButton
+                                    (
+                                        null,
+                                        () => "Clear Launchpad",
+                                        ClearLaunchpad,
+                                        CloseMode.Current
+                                    )
+                                )
+                            );
+                            ScreenManager.main.OpenScreen(menu);
+                        }
+                    }
+                    await Task.Delay(500);
+                }
+            }
+
+            static bool UpdateLaunchpadStatus(ref HashSet<int> rockets, ref HashSet<int> players, out bool updateText)
+            {
+                HashSet<int> newRockets = new HashSet<int>();
+                HashSet<int> newPlayers = new HashSet<int>();
+
+                foreach (KeyValuePair<int, RocketState> rocket in ClientManager.world.rockets)
+                {
+                    if (GameManager_IsOnLaunchpad.IsOnLaunchpad(rocket.Value.location.address, rocket.Value.location.position))
+                    {
+                        Debug.Log(rocket.Value.location.position);
+                        newRockets.Add(rocket.Key);
+                        foreach (KeyValuePair<int, LocalPlayer> player in LocalManager.players)
+                        {
+                            if (player.Value.controlledRocket == rocket.Key)
+                            {
+                                newPlayers.Add(player.Key);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (newPlayers.Count == 0 && newRockets.Count == 0)
+                {
+                    updateText = false;
+                    return true;
+                }
+                else
+                {
+                    updateText = !newPlayers.SetEquals(players) || !newRockets.SetEquals(rockets);
+                    rockets = newRockets;
+                    players = newPlayers;
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reverse patch for use in `BuildManager_Launch_2.UpdateLaunchpadStatus`.
+        /// </summary>
+        [HarmonyPatch(typeof(GameManager), "IsOnLaunchpad")]
+        public static class GameManager_IsOnLaunchpad
+        {
+            [HarmonyReversePatch]
+            public static bool IsOnLaunchpad(string planet, Double2 postion) => throw new NotImplementedException("Harmony Reverse Patch");
+        }
+    }
+
+
+public static class LaunchpadReference
+{
+    public static bool TryGetPosition(out double x, out double y, out string address)
+    {
+        x = 0.0;
+        y = 0.0;
+        address = null;
+        try
+        {
+            var loader = Base.planetLoader;
+            var center = loader == null ? null : loader.spaceCenter;
+            if (center == null) return false;
+            x = center.LaunchPadLocation.position.x;
+            y = center.LaunchPadLocation.position.y;
+            address = center.address;
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+}
 }

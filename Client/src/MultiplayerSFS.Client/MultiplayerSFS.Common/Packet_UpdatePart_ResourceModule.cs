@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.Collections.Generic;
 using Lidgren.Network;
@@ -21,7 +25,8 @@ public class Packet_UpdatePart_ResourceModule : Packet
 		((NetBuffer)msg).Write(WorldTime);
 		((NetBuffer)msg).Write(RocketId);
 		((NetBuffer)msg).Write(ResourcePercent);
-		msg.WriteCollection((ICollection<int>)PartIds, (Action<int>)((NetBuffer)msg).Write);
+		PartIds ??= new HashSet<int>();
+					msg.WriteCollection((ICollection<int>)PartIds, (Action<int>)((NetBuffer)msg).Write);
 	}
 
 	public override void Deserialize(NetIncomingMessage msg)

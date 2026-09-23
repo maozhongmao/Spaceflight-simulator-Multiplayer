@@ -1,28 +1,52 @@
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
-    <AssemblyName>SFS-Multiplayer-1.6-V1.1.4</AssemblyName>
+    <AssemblyName>SFS-Multiplayer-1.6-V1.2.4</AssemblyName>
+    <Version>1.2.4</Version>
     <RootNamespace>MultiplayerSFS</RootNamespace>
     <LangVersion>12.0</LangVersion>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 双版本：默认 v16（1.6）；-p:GameVersion=v15 出 1.5 包（老电脑）。
+         v15 会打开 SFS15 条件编译 + 切到 refs/v15，差异只集中在 3 个文件（见 Port15/PORT-NOTES.md）。 -->
     <GameVersion Condition="'$(GameVersion)' == ''">v16</GameVersion>
     <GameReferences>$(MSBuildProjectDirectory)\..\..\refs\$(GameVersion)</GameReferences>
+    <DefineConstants Condition="'$(GameVersion)' == 'v15'">$(DefineConstants);SFS15</DefineConstants>
+    <AssemblyName Condition="'$(GameVersion)' == 'v15'">SFS-Multiplayer-1.5-V1.2.4</AssemblyName>
+    <AssemblyName Condition="'$(GameVersion)' != 'v15'">SFS-Multiplayer-1.6-V1.2.4</AssemblyName>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutputPath>$(MSBuildProjectDirectory)\..\..\artifacts\$(GameVersion)\</OutputPath>
+    <OutputPath Condition="'$(GameVersion)' == 'v15'">$(MSBuildProjectDirectory)\..\..\release-1.5-V1.2.4\</OutputPath>
+    <OutputPath Condition="'$(GameVersion)' != 'v15'">$(MSBuildProjectDirectory)\..\..\artifacts\V1.2.4\</OutputPath>
+    <!-- 同目录下的 MultiplayerSFS.Common.Kcp 是独立工程，但它嵌在本工程目录内：
+         默认源码通配会把它的 obj/**/*.cs（含自动生成的 AssemblyInfo）也编译进来，
+         与本工程手写的 Properties/AssemblyInfo.cs 冲突（CS0579 特性重复）。
+         排除整个子目录及其 obj/bin。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);MultiplayerSFS.Common.Kcp\obj\**;MultiplayerSFS.Common.Kcp\bin\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Costura.Fody" Version="5.7.0">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- 玩家只填域名时查 SRV 拿端口用。DnsClient 的 net472 目标只依赖 System.Buffers，
+         两者都由 Costura 内嵌，发布物仍然是单个 dll。 -->
+    <PackageReference Include="DnsClient" Version="1.8.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="Assembly-CSharp" HintPath="$(GameReferences)\Assembly-CSharp.dll" Private="false" />
     <Reference Include="Assembly-CSharp-firstpass" HintPath="$(GameReferences)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="0Harmony" HintPath="$(GameReferences)\0Harmony.dll" Private="false" />
-    <Reference Include="Lidgren.Network" HintPath="$(GameReferences)\Lidgren.Network.dll" Private="false" />
+    <Reference Include="Lidgren.Network" HintPath="$(GameReferences)\Lidgren.Network.dll" Private="true" />
     <Reference Include="UITools" HintPath="$(GameReferences)\UITools.dll" Private="false" />
     <Reference Include="Unity.TextMeshPro" HintPath="$(GameReferences)\Unity.TextMeshPro.dll" Private="false" />
     <Reference Include="UnityEngine" HintPath="$(GameReferences)\UnityEngine.dll" Private="false" />

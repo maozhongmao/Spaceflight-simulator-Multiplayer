@@ -1,3 +1,8 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System.Reflection;
 using SfsMultiplayer.Protocol;
 using SfsMultiplayer.Server;
 
@@ -5,6 +10,18 @@ namespace SfsMultiplayer.Tests;
 
 public sealed class ServerCommandAndTimeWarpTests
 {
+    [Fact]
+    public void ServerHasNoTimeWarpVotingInfrastructure()
+    {
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var type = typeof(TcpMultiplayerServer);
+
+        Assert.Null(type.GetField("_pendingTimeWarpVote", flags));
+        Assert.Null(type.GetField("_nextTimeWarpVoteId", flags));
+        Assert.DoesNotContain(type.GetMethods(flags), method =>
+            method.Name.Contains("TimeWarpVote", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void TimeWarpPacketRoundTrips()
     {
@@ -40,7 +57,7 @@ public sealed class ServerCommandAndTimeWarpTests
     {
         var server = NewServer(new WorldSnapshot { WorldTime = 100 });
 
-        var result = server.ExecuteCommand("timewarp 25");
+        var result = server.ExecuteCommand("time 25");
 
         Assert.False(result.RequestShutdown);
         Assert.Contains("25", result.Message);
@@ -52,7 +69,7 @@ public sealed class ServerCommandAndTimeWarpTests
     {
         var server = NewServer(new WorldSnapshot { WorldTime = 100 });
 
-        var result = server.ExecuteCommand("timewarp 2500.01");
+        var result = server.ExecuteCommand("time 2500.01");
 
         Assert.Contains("1 到 2500", result.Message);
         Assert.Equal(1, server.TimeScale);
@@ -66,7 +83,7 @@ public sealed class ServerCommandAndTimeWarpTests
         world.Rockets[2] = RocketWithParts("large station", 4);
         var server = NewServer(world);
 
-        var result = server.ExecuteCommand("cleardebris 3");
+        var result = server.ExecuteCommand("debris 3");
 
         Assert.Contains("1", result.Message);
         Assert.DoesNotContain(1, world.Rockets.Keys);
@@ -85,38 +102,30 @@ public sealed class ServerCommandAndTimeWarpTests
     }
 
     [Fact]
-    public void ShortTimeCommandCanForceAllowedTimeWarp()
+    public void NetworkCommandReturnsPlayerNetworkList()
     {
         var server = NewServer(new WorldSnapshot { WorldTime = 100 });
 
-        var result = server.ExecuteCommand("time 25");
+        var result = server.ExecuteCommand("network");
 
-        Assert.Contains("25", result.Message);
-        Assert.Equal(25, server.TimeScale);
+        Assert.Contains("当前没有在线玩家", result.Message);
     }
 
-    [Fact]
-    public void ShortTimeOffCommandRestoresNormalRate()
+    [Theory]
+    [InlineData("timewarp 25")]
+    [InlineData("stoptimewarp")]
+    [InlineData("cleardebris 3")]
+    [InlineData("save")]
+    [InlineData("resync")]
+    [InlineData("exit")]
+    public void LegacyCommandAliasesAreRejected(string command)
     {
         var server = NewServer(new WorldSnapshot { WorldTime = 100 });
-        server.ExecuteCommand("time 25");
 
-        var result = server.ExecuteCommand("time off");
+        var result = server.ExecuteCommand(command);
 
-        Assert.Contains("1x", result.Message);
-        Assert.Equal(1, server.TimeScale);
-    }
-
-    [Fact]
-    public void ShortDebrisCommandUsesExistingCleanup()
-    {
-        var world = new WorldSnapshot { WorldTime = 100 };
-        world.Rockets[1] = RocketWithParts("tiny debris", 2);
-        var server = NewServer(world);
-
-        server.ExecuteCommand("debris 3");
-
-        Assert.DoesNotContain(1, world.Rockets.Keys);
+        Assert.Contains("未知命令", result.Message);
+        Assert.False(result.RequestShutdown);
     }
 
     private static TcpMultiplayerServer NewServer(WorldSnapshot world) => new(new ServerSettings

@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Concurrent;
 using System.Reflection;
 using Lidgren.Network;
@@ -14,6 +18,13 @@ public enum TcpFrameKind : byte
     Disconnect = 6,
     RequestWorldSnapshot = 7,
     RequestRocketSnapshot = 8,
+    // Optional pre-login discovery frames. They do not create a player session.
+    ServerInfoRequest = 9,
+    ServerInfoResponse = 10,
+    // 登录页头部那行"服务端 V.. / 客户端 V.."靠它。旧客户端不发、旧服务端不回，
+    // 两边都只是探测不到版本，不影响进服。
+    ServerVersionRequest = 11,
+    ServerVersionResponse = 12,
 }
 
 public sealed record TcpFrame(TcpFrameKind Kind, int Sequence, byte[] Payload, int PayloadBits);

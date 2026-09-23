@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -106,7 +110,7 @@ public class DivertRocketSwitching
 				if (id >= 0)
 				{
 					if (!Rocket_SetPlayerToBestControllable.ShouldRequestNativeSelection(
-						(bool)ClientManager.multiplayerEnabled, id, LocalManager.Player.controlledRocket.Value)) return true;
+						(bool)ClientManager.multiplayerEnabled, id, LocalManager.Player != null ? LocalManager.Player.controlledRocket.Value : -1)) return true;
 					ClientManager.RequestPlayerControl(id);
 					return false;
 				}

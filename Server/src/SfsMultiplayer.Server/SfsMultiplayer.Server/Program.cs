@@ -1,4 +1,8 @@
-﻿using System.Globalization;
+﻿// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+using System.Globalization;
 using System.Text;
 using SfsMultiplayer.Protocol;
 using SfsMultiplayer.Server;
@@ -60,9 +64,11 @@ internal static class ServerProgram
                 await using (var server = new TcpMultiplayerServer(settings, world))
                 {
                     server.Start();
-                    Console.WriteLine($"[启动] TCP+UDP P2P Network V1.1.4 {settings.BindAddress}:{server.Port}，最多 {settings.MaxConnections} 人。");
+                    Console.WriteLine($"[启动] TCP+UDP P2P Network V1.2.0-preview {settings.BindAddress}:{server.Port}，最多 {settings.MaxConnections} 人。");
                     if (settings.Debug) Console.WriteLine("[调试] 已开启。");
                     Console.WriteLine("[指令] 输入 help 查看服务端命令，输入 stop 安全保存并退出。");
+                    // 启动加载 plugins/ 下的 DLL 补丁（不阻塞网络启动）。
+                    server.LoadPatches();
                     StartConsoleCommandThread(server, cancellation);
                     await server.RunAsync(cancellation.Token);
                 }

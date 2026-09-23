@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Generic;
 using System.Linq;
 using MultiplayerSFS.Common;
@@ -11,6 +15,11 @@ public class LocalRocket
 	public Rocket rocket;
 
 	public Dictionary<int, Part> parts;
+
+	// 最近一次对"本枚火箭参与的所有火箭对"应用忽略碰撞时的部件指纹（见 LocalManager.ApplyPairIgnore /
+	// RocketColliderSignature）。指纹没变 = 零件没有增删 = 碰撞体集合没变，
+	// 周期性重放可以整对跳过，不必再跑一遍 O(部件²) 次 Physics2D.IgnoreCollision。
+	public long colliderSignature;
 
 	public Interpolator interpolator;
 

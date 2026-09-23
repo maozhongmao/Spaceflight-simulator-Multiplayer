@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using Lidgren.Network;
 
 namespace MultiplayerSFS.Common;
@@ -14,9 +18,9 @@ public class Packet_JoinRequest : Packet
 
 	public override void Serialize(NetOutgoingMessage msg)
 	{
-		((NetBuffer)msg).Write(Username);
-		((NetBuffer)msg).Write(Password);
-		((NetBuffer)msg).Write(SolarSystemName);
+		msg.WriteCompressedString(Username ?? string.Empty);
+		msg.WriteCompressedString(Password ?? string.Empty);
+		msg.WriteCompressedString(SolarSystemName ?? string.Empty);
 	}
 
 	public override void Deserialize(NetIncomingMessage msg)

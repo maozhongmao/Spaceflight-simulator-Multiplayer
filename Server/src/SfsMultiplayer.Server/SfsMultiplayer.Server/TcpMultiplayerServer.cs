@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
@@ -20,8 +24,8 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     private readonly Dictionary<(int First, int Second), string> _p2pPairTokens = new();
     private readonly Stopwatch _p2pClock = Stopwatch.StartNew();
     private readonly Dictionary<(int KeepRocket, int RemoveRocket, int KeepPart, int RemovePart), PendingDock> _pendingDocks = new();
-    private PendingTimeWarpVote? _pendingTimeWarpVote;
-    private readonly ConcurrentBag<Task> _clientTasks = new();
+	private readonly List<Task> _clientTasks = new();
+	private readonly object _clientTasksLock = new();
     private readonly Stopwatch _worldClock = Stopwatch.StartNew();
     private readonly Stopwatch _saveClock = Stopwatch.StartNew();
     private readonly Stopwatch _debugClock = Stopwatch.StartNew();
@@ -30,10 +34,18 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     private double _timeScale = 1;
     private int _nextPlayerId;
     private int _sequence;
-    private int _nextTimeWarpVoteId;
     private bool _started;
     private bool _autoClearDebris;
     private const int AutoClearDebrisMaxParts = DebrisControlRules.DefaultAutoRemoveMaxParts;
+
+    // 版本探测回显的号：取自身程序集，别写死——csproj 才是版本真源，写死后登录页会显示过期号。
+    public static string ServerVersionString { get; } = ResolveServerVersion();
+
+    private static string ResolveServerVersion()
+    {
+        var version = typeof(TcpMultiplayerServer).Assembly.GetName().Version;
+        return version is null ? "unknown" : $"{version.Major}.{version.Minor}.{version.Build}";
+    }
 
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
     public int PlayerCount => _players.Count;
@@ -42,6 +54,9 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     {
         get { lock (_worldLock) return _world.WorldTime + _worldClock.Elapsed.TotalSeconds * _timeScale; }
     }
+
+    // 暴露当前生效配置给补丁上下文（只读访问）。
+    public ServerSettings Settings => _settings;
 
     public TcpMultiplayerServer(ServerSettings settings, WorldSnapshot world)
     {
@@ -86,24 +101,37 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 client.ReceiveBufferSize = 256 * 1024;
                 client.SendBufferSize = 256 * 1024;
                 var task = HandleClientAsync(client, cancellationToken);
-                _clientTasks.Add(task);
+                lock (_clientTasksLock)
+                {
+                	_clientTasks.RemoveAll(t => t.IsCompleted);
+                	_clientTasks.Add(task);
+                }
             }
         }
         finally
         {
             try { await maintenance.ConfigureAwait(false); } catch (OperationCanceledException) { }
             foreach (var session in _players.Values) session.Close();
-            try { await Task.WhenAll(_clientTasks.ToArray()).ConfigureAwait(false); } catch { }
+            Task[] tasksToWait;
+            lock (_clientTasksLock) tasksToWait = _clientTasks.ToArray();
+            try { await Task.WhenAll(tasksToWait).ConfigureAwait(false); } catch { }
             SaveState();
         }
     }
 
-    private bool HandleUdpDatagram(string token, IPEndPoint endpoint, byte[] payload)
+    private bool HandleUdpDatagram(byte kind, string token, IPEndPoint endpoint, byte[] payload)
     {
         var session = _players.Values.FirstOrDefault(player => player.UdpToken == token);
         if (session is null) return false;
-        session.UdpEndpoint = endpoint;
-        session.LastUdpReceiveUtc = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        session.RecordUdpEndpoint(endpoint);
+        if (kind == UdpStateTransport.Bind)
+        {
+            session.RecordUdpReceive(now);
+            return payload.Length == 0;
+        }
+        if (kind != UdpStateTransport.Data) return false;
+        session.RecordUdpReceive(now);
         if (payload.Length == 0) return true;
         try
         {
@@ -132,6 +160,30 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 joinTimeout.CancelAfter(TimeSpan.FromSeconds(10));
                 var hello = await TcpFrameCodec.ReadAsync(stream, joinTimeout.Token).ConfigureAwait(false);
                 Console.WriteLine($"[MP-CONNECT] HELLO_FRAME_RECEIVED {endpoint} kind={hello.Kind} sequence={hello.Sequence} bytes={hello.Payload.Length}");
+                if (hello.Kind == TcpFrameKind.ServerInfoRequest)
+                {
+                    if (hello.Payload.Length != 0 || hello.PayloadBits != 0)
+                        throw new InvalidDataException("Server info request must not contain a payload.");
+
+                    var infoPayload = ServerInfoWire.EncodeResponse(_players.Count, _settings.MaxConnections);
+                    await TcpFrameCodec.WriteAsync(stream,
+                        new TcpFrame(TcpFrameKind.ServerInfoResponse, hello.Sequence,
+                            infoPayload, infoPayload.Length * 8), serverToken).ConfigureAwait(false);
+                    return;
+                }
+                if (hello.Kind == TcpFrameKind.ServerVersionRequest)
+                {
+                    if (hello.Payload.Length != 0 || hello.PayloadBits != 0)
+                        throw new InvalidDataException("Server version request must not contain a payload.");
+
+                    // 握手版本用 Hello 硬校验的同一个数，所以"登录页显示匹配"和"Hello 能不能过"是同一个口径。
+                    var versionPayload = ServerVersionWire.EncodeResponse(
+                        SessionHandshakeCodec.Version, TcpFrameCodec.ProtocolVersion, ServerVersionString);
+                    await TcpFrameCodec.WriteAsync(stream,
+                        new TcpFrame(TcpFrameKind.ServerVersionResponse, hello.Sequence,
+                            versionPayload, versionPayload.Length * 8), serverToken).ConfigureAwait(false);
+                    return;
+                }
                 if (hello.Kind != TcpFrameKind.Hello)
                     throw new InvalidDataException("First TCP frame must be Hello.");
                 if (hello.Sequence != SessionHandshakeCodec.Version)
@@ -229,7 +281,8 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                             throw new InvalidDataException($"Unexpected TCP frame: {frame.Kind}.");
                     }
                 }
-                session.Close();
+                if (session.ConnectionGeneration == connectionGeneration)
+                    session.Close();
                 try { await writer.ConfigureAwait(false); } catch (OperationCanceledException) { }
             }
         }
@@ -263,8 +316,6 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                     session.Close();
                     lock (_worldLock)
                     {
-                        if (_pendingTimeWarpVote?.RequiredPlayerIds.Contains(session.Id) == true)
-                            CancelTimeWarpVote($"{session.Username} 已离线，投票取消。");
                         Broadcast(PacketType.PlayerDisconnected,
                             new PlayerDisconnectedPacket { PlayerId = session.Id }, session);
                         RefreshAuthorities();
@@ -295,73 +346,90 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_heartbeatClock.Elapsed >= TimeSpan.FromSeconds(2))
+            try
             {
-                _heartbeatClock.Restart();
-                var now = DateTime.UtcNow;
-                foreach (var session in _players.Values)
+                if (_heartbeatClock.Elapsed >= TimeSpan.FromSeconds(2))
                 {
-                    if (now - session.LastReceiveUtc > TimeSpan.FromSeconds(10))
+                    _heartbeatClock.Restart();
+                    var now = DateTime.UtcNow;
+                    foreach (var session in _players.Values)
                     {
-                        if (session.EnterRecoveryWindow())
+                        if (now - session.LastReceiveUtc > TimeSpan.FromSeconds(10))
                         {
+                            if (session.EnterRecoveryWindow())
+                            {
+                                continue;
+                            }
+                            if (_players.TryRemove(session.Id, out _))
+                            {
+                                session.Close();
+                                lock (_worldLock)
+                                {
+                                    Broadcast(PacketType.PlayerDisconnected,
+                                        new PlayerDisconnectedPacket { PlayerId = session.Id }, session);
+                                    RefreshAuthorities();
+                                }
+                                Console.WriteLine($"{session.Username} 已断开。");
+                            }
                             continue;
                         }
-                        if (_players.TryRemove(session.Id, out _))
-                        {
-                            session.Close();
-                            lock (_worldLock)
-                            {
-                                if (_pendingTimeWarpVote?.RequiredPlayerIds.Contains(session.Id) == true)
-                                    CancelTimeWarpVote($"{session.Username} 已离线，投票取消。");
-                                Broadcast(PacketType.PlayerDisconnected,
-                                    new PlayerDisconnectedPacket { PlayerId = session.Id }, session);
-                                RefreshAuthorities();
-                            }
-                            Console.WriteLine($"{session.Username} 已断开。");
-                        }
-                        continue;
+                        var ticks = now.Ticks;
+                        session.RegisterHeartbeat(ticks);
+                        var bytes = BitConverter.GetBytes(ticks);
+                        EnqueueCritical(session, new TcpFrame(TcpFrameKind.Ping,
+                            Interlocked.Increment(ref _sequence), bytes, bytes.Length * 8));
                     }
-                    var ticks = now.Ticks;
-                    session.LastPingTicks = ticks;
-                    var bytes = BitConverter.GetBytes(ticks);
-                    EnqueueCritical(session, new TcpFrame(TcpFrameKind.Ping,
-                        Interlocked.Increment(ref _sequence), bytes, bytes.Length * 8));
                 }
-            }
-            SaveIfDue();
-            if (_autoClearDebris)
-            {
+                SaveIfDue();
+                if (_autoClearDebris)
+                {
+                    lock (_worldLock)
+                    {
+                        var removed = ClearDebris(AutoClearDebrisMaxParts);
+                        if (removed > 0)
+                            Console.WriteLine($"[debris auto] 已清理 {removed} 枚太空垃圾。");
+                    }
+                }
                 lock (_worldLock)
                 {
-                    var removed = ClearDebris(AutoClearDebrisMaxParts);
-                    if (removed > 0)
-                        Console.WriteLine($"[cleardebris auto] 已清理 {removed} 枚太空垃圾。");
+                    if (_settings.P2P.Enabled && _p2pClock.Elapsed.TotalSeconds >= _settings.P2P.ValidationIntervalSeconds)
+                    {
+                        _p2pClock.Restart();
+                        RefreshP2PPeers();
+                    }
                 }
-            }
-            lock (_worldLock)
-            {
-                if (_pendingTimeWarpVote is not null && DateTime.UtcNow >= _pendingTimeWarpVote.ExpiresUtc)
-                    CancelTimeWarpVote("投票已超时，时间倍率保持不变。");
-                if (_settings.P2P.Enabled && _p2pClock.Elapsed.TotalSeconds >= _settings.P2P.ValidationIntervalSeconds)
+                if (_settings.Debug && _debugClock.Elapsed >= TimeSpan.FromSeconds(5))
                 {
-                    _p2pClock.Restart();
-                    RefreshP2PPeers();
+                    _debugClock.Restart();
+                    PrintDebugSummary();
                 }
             }
-            if (_settings.Debug && _debugClock.Elapsed >= TimeSpan.FromSeconds(5))
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _debugClock.Restart();
-                PrintDebugSummary();
+                break;
             }
-            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[维护] 本轮异常，继续运行: {ex.Message}");
+                if (_settings.Debug || Environment.GetEnvironmentVariable("SFS_SERVER_DEBUG") == "1")
+                    Console.Error.WriteLine(ex);
+            }
+
+            try
+            {
+                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
     }
 
     private void RefreshP2PPeers()
     {
         var eligible = _players.Values
-            .Where(session => session.ExperimentalAccessGranted && session.UdpEndpoint is not null)
+            .Where(session => session.UdpEndpoint is not null)
             .OrderBy(session => session.Id)
             .ToArray();
         var activePairs = new HashSet<(int First, int Second)>();
@@ -450,9 +518,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
     {
         if (frame.Payload.Length < 8) return;
         var sentTicks = BitConverter.ToInt64(frame.Payload, 0);
-        var rtt = TimeSpan.FromTicks(Math.Max(0, DateTime.UtcNow.Ticks - sentTicks)).TotalMilliseconds;
-        session.JitterMs = session.RoundTripMs <= 0 ? 0 : session.JitterMs * 0.8 + Math.Abs(rtt - session.RoundTripMs) * 0.2;
-        session.RoundTripMs = rtt;
+        if (!session.RecordHeartbeatPong(sentTicks, out var rtt)) return;
         Send(session, PacketType.UpdateWorldTime,
             new UpdateWorldTimePacket { WorldTime = WorldTime + rtt / 2000.0 * TimeScale });
     }
@@ -499,6 +565,11 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             Username = joining.Username,
             IconColor = joining.Color,
             PrintMessage = true,
+        }, joining);
+
+        Broadcast(PacketType.ShowToastMessage, new PlayerEventToastPacket
+        {
+            Message = $"{joining.Username} entered the world",
         }, joining);
     }
 
@@ -574,7 +645,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         {
             if (!TimeWarpControlRules.CanSetPersonal(_players.Count, packet.Multiplier))
             {
-                SendTimeWarpNotice(player, "多人模式允许的个人时间倍率: 1 到 5。");
+                SendTimeWarpNotice(player, "Personal time scale in multiplayer must be between 1x and 5x.");
                 return;
             }
 
@@ -584,7 +655,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 Multiplier = packet.Multiplier,
                 WorldTime = WorldTime,
                 Approved = true,
-                Message = $"个人时间倍率已设为 {packet.Multiplier:0.##}x。"
+                Message = $"Personal time scale set to {packet.Multiplier:0.##}x."
             });
             return;
         }
@@ -592,84 +663,11 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         var controllingPlayers = _players.Values.Count(session => session.ControlledRocket != -1);
         if (!TimeWarpControlRules.CanSet(controllingPlayers, packet.Multiplier))
         {
-            SendTimeWarpNotice(player, "当前无法设置该时间倍率。");
+            SendTimeWarpNotice(player, "The time scale cannot be changed right now.");
             return;
         }
 
         SetTimeScale(packet.Multiplier, string.Empty);
-    }
-
-    private void StartTimeWarpVote(TcpSession requester, double multiplier)
-    {
-        if (!IsAllowedTimeScale(multiplier))
-        {
-            SendTimeWarpNotice(requester, "允许的时间倍率: 1 到 2500");
-            return;
-        }
-        if (_pendingTimeWarpVote is not null)
-        {
-            SendTimeWarpNotice(requester, "当前已有一项时间加速投票正在进行。");
-            return;
-        }
-
-        var required = _players.Keys.ToHashSet();
-        var vote = new PendingTimeWarpVote(
-            Interlocked.Increment(ref _nextTimeWarpVoteId), requester.Id, requester.Username,
-            multiplier, required, DateTime.UtcNow.AddSeconds(30));
-        vote.ApprovedPlayerIds.Add(requester.Id);
-        _pendingTimeWarpVote = vote;
-        Broadcast(PacketType.TimeWarp, new TimeWarpPacket
-        {
-            Operation = TimeWarpOperation.Vote,
-            VoteId = vote.Id,
-            RequesterId = requester.Id,
-            RequesterName = requester.Username,
-            Multiplier = multiplier,
-            WorldTime = WorldTime,
-            TimeoutSeconds = 30,
-            Message = $"{requester.Username} 申请将时间倍率设为 {multiplier:0.##}x。",
-        });
-        Console.WriteLine($"[时间投票] {requester.Username} 申请 {multiplier:0.##}x，等待 {required.Count} 名玩家一致同意。");
-        if (vote.RequiredPlayerIds.SetEquals(vote.ApprovedPlayerIds)) CompleteTimeWarpVote();
-    }
-
-    private void RegisterTimeWarpVote(TcpSession player, int voteId, bool approved)
-    {
-        var vote = _pendingTimeWarpVote;
-        if (vote is null || vote.Id != voteId || !vote.RequiredPlayerIds.Contains(player.Id)) return;
-        if (!approved)
-        {
-            CancelTimeWarpVote($"{player.Username} 拒绝了投票，时间倍率保持不变。");
-            return;
-        }
-        vote.ApprovedPlayerIds.Add(player.Id);
-        Console.WriteLine($"[时间投票] {player.Username} 已同意 ({vote.ApprovedPlayerIds.Count}/{vote.RequiredPlayerIds.Count})。");
-        if (vote.RequiredPlayerIds.SetEquals(vote.ApprovedPlayerIds)) CompleteTimeWarpVote();
-    }
-
-    private void CompleteTimeWarpVote()
-    {
-        var vote = _pendingTimeWarpVote;
-        if (vote is null) return;
-        _pendingTimeWarpVote = null;
-        SetTimeScale(vote.Multiplier, "全员投票通过", vote.Id);
-        Console.WriteLine($"[时间投票] 全员通过，时间倍率设为 {vote.Multiplier:0.##}x。");
-    }
-
-    private void CancelTimeWarpVote(string reason)
-    {
-        var vote = _pendingTimeWarpVote;
-        if (vote is null) return;
-        _pendingTimeWarpVote = null;
-        Broadcast(PacketType.TimeWarp, new TimeWarpPacket
-        {
-            Operation = TimeWarpOperation.Cancelled,
-            VoteId = vote.Id,
-            Multiplier = _timeScale,
-            WorldTime = WorldTime,
-            Message = reason,
-        });
-        Console.WriteLine("[时间投票] " + reason);
     }
 
     private void SendTimeWarpNotice(TcpSession player, string message)
@@ -698,6 +696,19 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
                 });
                 return;
             }
+        }
+        if (packet.RocketId == player.ControlledRocket)
+        {
+            // 幂等回执（勿删）：客户端在 P2P 重建/原生选择/销毁等路径会重复请求同一火箭的控制权。
+            // 曾因每次重复都 RefreshAuthorities+Broadcast，把偶发的控制交接竞态放大成
+            // 数万次 UpdatePlayerControl/UpdatePlayerAuthority 风暴（真机日志 37820 次发送）。
+            // 相同目标只单播确认给请求者，不刷新权威、不广播。
+            Send(player, PacketType.UpdatePlayerControl, new UpdatePlayerControlPacket
+            {
+                PlayerId = player.Id,
+                RocketId = player.ControlledRocket,
+            });
+            return;
         }
         packet.PlayerId = player.Id;
         player.ControlledRocket = packet.RocketId;
@@ -737,14 +748,19 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             if (!CanUpdate(player, packet.GlobalId)) return;
             _world.Rockets[packet.GlobalId] = packet.Rocket;
             packet.WorldTime = WorldTime;
+            packet.LocalId = -1;
             Broadcast(PacketType.CreateRocket, packet, player);
             return;
         }
         packet.GlobalId = NextRocketId();
         packet.WorldTime = WorldTime;
         _world.Rockets.Add(packet.GlobalId, packet.Rocket);
+        // 只有创建者获得写权；旁观者的 CreateRocket 回执里 LocalId 必须清成 -1，
+        // 否则不同客户端的本地临时编号碰撞会把对方火箭误认成自己的回显（错绑/错申请控制）。
         player.UpdateAuthority.Add(packet.GlobalId);
-        Broadcast(PacketType.CreateRocket, packet);
+        Send(player, PacketType.CreateRocket, packet);
+        packet.LocalId = -1;
+        Broadcast(PacketType.CreateRocket, packet, player);
         if (!packet.ForLaunch) RefreshAuthorities();
     }
 
@@ -755,7 +771,15 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         packet.WorldTime = WorldTime;
         foreach (var connected in _players.Values)
         {
-            if (connected.ControlledRocket == packet.RocketId) connected.ControlledRocket = -1;
+            if (connected.ControlledRocket == packet.RocketId)
+            {
+                connected.ControlledRocket = -1;
+                Broadcast(PacketType.UpdatePlayerControl, new UpdatePlayerControlPacket
+                {
+                    PlayerId = connected.Id,
+                    RocketId = -1,
+                });
+            }
             connected.UpdateAuthority.Remove(packet.RocketId);
         }
         Broadcast(PacketType.DestroyRocket, packet, player);
@@ -858,6 +882,14 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         packet.WorldTime = WorldTime;
         packet.MergedRocket = merged;
         Broadcast(PacketType.DockTransaction, packet);
+
+        if (keepController is not null && removeController is not null && keepController.Id != removeController.Id)
+        {
+            Broadcast(PacketType.ShowToastMessage, new PlayerEventToastPacket
+            {
+                Message = $"{keepController.Username} docked with {removeController.Username}",
+            });
+        }
         RefreshAuthorities();
     }
 
@@ -1070,14 +1102,17 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         foreach (var session in _players.Values)
         {
             if (session == except) continue;
-            if (session.UdpEndpoint is not null)
+            var udpEndpoint = session.UdpEndpoint;
+            if (udpEndpoint is not null)
             {
-                _udp.Send(session.UdpEndpoint, session.UdpToken, payload.Data);
-                continue;
+                _udp.SendState(udpEndpoint, session.UdpToken, payload.Data);
             }
-            session.Queue.EnqueueLatest(key, new TcpFrame(TcpFrameKind.Packet,
-                Interlocked.Increment(ref _sequence), payload.Data, payload.BitLength));
-            session.Signal();
+            else
+            {
+                session.Queue.EnqueueLatest(key, new TcpFrame(TcpFrameKind.Packet,
+                    Interlocked.Increment(ref _sequence), payload.Data, payload.BitLength));
+                session.Signal();
+            }
         }
     }
 
@@ -1236,71 +1271,78 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         if (line.Length == 0) return new ServerCommandResult(false, string.Empty);
         var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
         var command = parts[0].ToLowerInvariant();
-        if (command == "time")
-            command = parts.Length == 2 && string.Equals(parts[1], "off", StringComparison.OrdinalIgnoreCase)
-                ? "stoptimewarp" : "timewarp";
-        else if (command == "debris")
-            command = "cleardebris";
-        else if (command == "world" && parts.Length == 2)
-            command = parts[1].ToLowerInvariant() switch
-            {
-                "save" => "save",
-                "sync" => "resync",
-                _ => "world"
-            };
         switch (command)
         {
             case "help":
                 return new ServerCommandResult(false,
-                    "常用: status, players, say <消息>, time <倍率|off>, debris [auto|最大部件数], world <save|sync>, kick <ID|名字>, stop。兼容旧命令: timewarp, stoptimewarp, cleardebris, save, resync。");
+                    "常用: status, players, network, say <消息>, time <倍率|off>, debris [auto|最大部件数], world <save|sync>, kick <ID|名字>, reload（热重载补丁）, stop。");
             case "status":
                 return new ServerCommandResult(false,
                     $"玩家={PlayerCount} 火箭={RocketCount()} 世界时间={WorldTime:F1} 倍率={TimeScale:0.##}x");
             case "players":
                 return new ServerCommandResult(false, PlayerList());
+            case "network":
+                return new ServerCommandResult(false, NetworkList());
             case "say":
                 if (parts.Length < 2) return new ServerCommandResult(false, "用法: say <消息>");
                 var text = line.Substring(line.IndexOf(' ') + 1).Trim();
                 if (text.Length == 0) return new ServerCommandResult(false, "用法: say <消息>");
-                Broadcast(PacketType.SendChatMessage, new SendChatMessagePacket { SenderId = -1, Message = "[服务器] " + text });
+                Broadcast(PacketType.SendChatMessage, new SendChatMessagePacket { SenderId = -1, Message = "[Server] " + text });
                 return new ServerCommandResult(false, "广播已发送。");
-            case "timewarp":
+            case "time":
+                if (parts.Length == 2 && string.Equals(parts[1], "off", StringComparison.OrdinalIgnoreCase))
+                {
+                    SetTimeScale(1, "服务器结束时间加速");
+                    return new ServerCommandResult(false, "时间倍率已恢复为 1x。");
+                }
                 if (parts.Length != 2 || !double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var scale) || !IsAllowedTimeScale(scale))
                     return new ServerCommandResult(false, "允许的时间倍率: 1 到 2500");
-                CancelTimeWarpVote("服务器已强制设置时间倍率，当前投票取消。");
                 SetTimeScale(scale, "服务器强制设置");
                 return new ServerCommandResult(false, $"时间倍率已强制设置为 {scale:0.##}x。");
-            case "stoptimewarp":
-                CancelTimeWarpVote("服务器已结束时间加速，当前投票取消。");
-                SetTimeScale(1, "服务器结束时间加速");
-                return new ServerCommandResult(false, "时间倍率已恢复为 1x。");
-            case "cleardebris":
+            case "debris":
                 var maxParts = 3;
                 if (parts.Length == 2 && string.Equals(parts[1], "auto", StringComparison.OrdinalIgnoreCase))
                 {
                     _autoClearDebris = !_autoClearDebris;
-                    return new ServerCommandResult(false, $"cleardebris auto 已{(_autoClearDebris ? "开启" : "关闭")}，自动阈值 {AutoClearDebrisMaxParts} 个部件。");
+                    return new ServerCommandResult(false, $"debris auto 已{(_autoClearDebris ? "开启" : "关闭")}，自动阈值 {AutoClearDebrisMaxParts} 个部件。");
                 }
                 if (parts.Length > 2 || (parts.Length == 2 && (!int.TryParse(parts[1], out maxParts) || maxParts < 0)))
-                    return new ServerCommandResult(false, "用法: cleardebris [最大部件数]（默认 3）");
+                    return new ServerCommandResult(false, "用法: debris [auto|最大部件数]（默认 3）");
                 var removed = ClearDebris(maxParts);
                 return new ServerCommandResult(false, $"已清理 {removed} 枚无人控制且部件数不超过 {maxParts} 的太空垃圾。");
-            case "save":
-                SaveState();
-                return new ServerCommandResult(false, "世界状态已保存。");
-            case "resync":
-                lock (_worldLock)
-                    foreach (var session in _players.Values) SendWorldSnapshot(session);
-                return new ServerCommandResult(false, "已向所有玩家发送世界快照。");
+            case "world":
+                if (parts.Length != 2)
+                    return new ServerCommandResult(false, "用法: world <save|sync>");
+                if (string.Equals(parts[1], "save", StringComparison.OrdinalIgnoreCase))
+                {
+                    SaveState();
+                    return new ServerCommandResult(false, "世界状态已保存。");
+                }
+                if (string.Equals(parts[1], "sync", StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (_worldLock)
+                        foreach (var session in _players.Values) SendWorldSnapshot(session);
+                    return new ServerCommandResult(false, "已向所有玩家发送世界快照。");
+                }
+                return new ServerCommandResult(false, "用法: world <save|sync>");
             case "kick":
                 if (parts.Length != 2) return new ServerCommandResult(false, "用法: kick <玩家ID|名字>");
                 var target = FindPlayer(parts[1]);
                 if (target is null) return new ServerCommandResult(false, "未找到玩家。");
-                target.Close();
+                if (_players.TryRemove(target.Id, out _))
+                {
+                	target.Close();
+                	lock (_worldLock)
+                	{
+                		Broadcast(PacketType.PlayerDisconnected, new PlayerDisconnectedPacket { PlayerId = target.Id }, target);
+                		RefreshAuthorities();
+                	}
+                }
                 return new ServerCommandResult(false, $"已踢出 {target.Username} (ID {target.Id})。");
+            case "reload":
+                return ReloadPatches();
             case "stop":
-            case "exit":
                 return new ServerCommandResult(true, "正在安全保存并停止服务端。");
             default:
                 return new ServerCommandResult(false, "未知命令。输入 help 查看命令。");
@@ -1314,6 +1356,20 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         var players = _players.Values.OrderBy(p => p.Id).Select(p =>
             $"{p.Id}: {p.Username} 控制={p.ControlledRocket} RTT={p.RoundTripMs:F0}ms").ToArray();
         return players.Length == 0 ? "当前没有在线玩家。" : string.Join(Environment.NewLine, players);
+    }
+
+    private string NetworkList()
+    {
+        var players = _players.Values.OrderBy(player => player.Id).ToArray();
+        if (players.Length == 0) return "当前没有在线玩家。";
+        var lines = new List<string> { "玩家名\t丢包率\t延迟" };
+        lines.AddRange(players.Select(player =>
+        {
+            var loss = player.HeartbeatSamples == 0 ? "--" : $"{player.PacketLossRate:F1}%";
+            var latency = player.RoundTripMs <= 0 ? "--" : $"{player.RoundTripMs:F0}ms";
+            return $"{player.Username}\t{loss}\t{latency}";
+        }));
+        return string.Join(Environment.NewLine, lines);
     }
 
     private TcpSession? FindPlayer(string value)
@@ -1333,7 +1389,7 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         if (controllingPlayers != 1) SetTimeScale(1, string.Empty);
     }
 
-    private void SetTimeScale(double scale, string reason, int voteId = 0)
+    private void SetTimeScale(double scale, string reason)
     {
         lock (_worldLock)
         {
@@ -1343,7 +1399,6 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             Broadcast(PacketType.TimeWarp, new TimeWarpPacket
             {
                 Operation = TimeWarpOperation.Applied,
-                VoteId = voteId,
                 Multiplier = scale,
                 WorldTime = _world.WorldTime,
                 Approved = true,
@@ -1393,7 +1448,49 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             foreach (var session in _players.Values) session.Close();
             _started = false;
         }
+        // 退出前卸载全部补丁，触发其 OnUnload 释放资源。
+        _patchLoader?.Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    // DLL 补丁加载器（MC 插件范式：启动扫描 plugins/ 加载，reload 命令热重载）。
+    private ServerPatch.PatchLoader? _patchLoader;
+
+    // 启动加载 plugins/ 目录下的补丁 DLL。失败不影响服务器本体运行。
+    public void LoadPatches()
+    {
+        try
+        {
+            _patchLoader = new ServerPatch.PatchLoader(this);
+            _patchLoader.LoadAll();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[补丁] 加载器初始化失败: {ex.Message}");
+            if (Environment.GetEnvironmentVariable("SFS_SERVER_DEBUG") == "1")
+                Console.Error.WriteLine(ex);
+        }
+    }
+
+    // 控制台 reload 命令调用：热重载全部补丁，不重启服务器。
+    public ServerCommandResult ReloadPatches()
+    {
+        if (!_settings.ExperimentalPatches)
+            return new ServerCommandResult(false, "实验性功能未开启（server.yml 的 experimental_patches: false），无补丁可重载。");
+        if (_patchLoader is null)
+        {
+            LoadPatches();
+            return new ServerCommandResult(false, "补丁加载器未初始化，已重新初始化并加载。");
+        }
+        try
+        {
+            _patchLoader.Reload();
+            return new ServerCommandResult(false, "已热重载全部补丁。");
+        }
+        catch (Exception ex)
+        {
+            return new ServerCommandResult(false, $"热重载失败: {ex.Message}");
+        }
     }
 
     private sealed class PendingDock
@@ -1409,27 +1506,6 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         }
     }
 
-    private sealed class PendingTimeWarpVote
-    {
-        public int Id { get; }
-        public int RequesterId { get; }
-        public string RequesterName { get; }
-        public double Multiplier { get; }
-        public HashSet<int> RequiredPlayerIds { get; }
-        public HashSet<int> ApprovedPlayerIds { get; } = new();
-        public DateTime ExpiresUtc { get; }
-
-        public PendingTimeWarpVote(int id, int requesterId, string requesterName, double multiplier,
-            HashSet<int> requiredPlayerIds, DateTime expiresUtc)
-        {
-            Id = id;
-            RequesterId = requesterId;
-            RequesterName = requesterName;
-            Multiplier = multiplier;
-            RequiredPlayerIds = requiredPlayerIds;
-            ExpiresUtc = expiresUtc;
-        }
-    }
 
     private sealed class TcpSession
     {
@@ -1441,19 +1517,34 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         public int ConnectionGeneration { get; private set; } = 1;
         public TcpSendQueue Queue { get; } = new();
         public SemaphoreSlim SendSignal { get; } = new(0, 1);
-        public CancellationTokenSource Closed { get; } = new();
+		public CancellationTokenSource Closed { get; private set; } = new();
         public HashSet<int> UpdateAuthority { get; } = new();
         public ConcurrentDictionary<PacketType, long> PacketCounts { get; } = new();
         public string UdpToken { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         public string ResumeToken { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-        public IPEndPoint? UdpEndpoint { get; set; }
-        public DateTime LastUdpReceiveUtc { get; set; } = DateTime.UtcNow;
+		private readonly object _udpHealthLock = new();
+		private IPEndPoint? _udpEndpoint;
+		private DateTime _lastUdpReceiveUtc = DateTime.UtcNow;
         public DateTime RecoveryExpiresUtc { get; private set; } = DateTime.MinValue;
         public int ControlledRocket { get; set; } = -1;
         public bool ExperimentalAccessGranted { get; set; }
         public DateTime LastChatUtc { get; set; } = DateTime.MinValue;
         public DateTime LastReceiveUtc { get; set; } = DateTime.UtcNow;
-        public long LastPingTicks { get; set; }
+        private readonly object _heartbeatLock = new();
+        private long _lastPingTicks;
+        private long _lastPongTicks;
+        private long _heartbeatSamples;
+        private long _heartbeatLost;
+        public long LastPingTicks { get { lock (_heartbeatLock) return _lastPingTicks; } }
+        public long HeartbeatSamples { get { lock (_heartbeatLock) return _heartbeatSamples; } }
+        public double PacketLossRate
+        {
+            get
+            {
+                lock (_heartbeatLock)
+                    return _heartbeatSamples == 0 ? 0 : _heartbeatLost * 100.0 / _heartbeatSamples;
+            }
+        }
         public double RoundTripMs { get; set; }
         public double JitterMs { get; set; }
         public long SentBytes { get; set; }
@@ -1464,11 +1555,56 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
         public TcpSession(int id, string username, Color3 color, TcpClient client, NetworkStream stream)
         { Id = id; Username = username; Color = color; Client = client; Stream = stream; }
 
+		public IPEndPoint? UdpEndpoint
+		{
+			get { lock (_udpHealthLock) return _udpEndpoint; }
+		}
+
+		public void RecordUdpEndpoint(IPEndPoint endpoint)
+		{
+			lock (_udpHealthLock) _udpEndpoint = endpoint;
+		}
+
+		public void RecordUdpReceive(DateTime now)
+		{
+			lock (_udpHealthLock) _lastUdpReceiveUtc = now;
+		}
+
+
         public bool CanResume(string token) =>
             RecoveryExpiresUtc >= DateTime.UtcNow &&
             !string.IsNullOrEmpty(token) &&
             CryptographicOperations.FixedTimeEquals(
                 Encoding.UTF8.GetBytes(ResumeToken), Encoding.UTF8.GetBytes(token));
+
+        public void RegisterHeartbeat(long ticks)
+        {
+            lock (_heartbeatLock)
+            {
+                if (_lastPingTicks != 0 && _lastPongTicks != _lastPingTicks)
+                    _heartbeatLost++;
+                _heartbeatSamples++;
+                _lastPingTicks = ticks;
+                _lastPongTicks = 0;
+            }
+        }
+
+        public bool RecordHeartbeatPong(long sentTicks, out double rtt)
+        {
+            lock (_heartbeatLock)
+            {
+                if (_lastPingTicks == 0 || sentTicks != _lastPingTicks || _lastPongTicks == sentTicks)
+                {
+                    rtt = 0;
+                    return false;
+                }
+                _lastPongTicks = sentTicks;
+                rtt = TimeSpan.FromTicks(Math.Max(0, DateTime.UtcNow.Ticks - sentTicks)).TotalMilliseconds;
+                JitterMs = RoundTripMs <= 0 ? 0 : JitterMs * 0.8 + Math.Abs(rtt - RoundTripMs) * 0.2;
+                RoundTripMs = rtt;
+                return true;
+            }
+        }
 
         public void ReplaceConnection(TcpClient client, NetworkStream stream)
         {
@@ -1480,11 +1616,13 @@ public sealed class TcpMultiplayerServer : IAsyncDisposable
             RecoveryExpiresUtc = DateTime.MinValue;
             LastReceiveUtc = DateTime.UtcNow;
             try { oldClient.Close(); } catch { }
+            Closed = new CancellationTokenSource(); // 重置连接取消源，使恢复连接后的写入循环不被旧取消状态影响
         }
 
         public bool EnterRecoveryWindow()
         {
-            if (DateTime.UtcNow - LastUdpReceiveUtc > TimeSpan.FromSeconds(5)) return false;
+            lock (_udpHealthLock)
+                if (DateTime.UtcNow - _lastUdpReceiveUtc > TimeSpan.FromSeconds(5)) return false;
             RecoveryExpiresUtc = DateTime.UtcNow.AddSeconds(20);
             return true;
         }

@@ -1,0 +1,28 @@
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>SamplePatch</AssemblyName>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 引用已构建的服务器程序集，拿到 IServerPatch / IServerContext 接口定义。
+         只作引用，不复制（补丁运行时由服务器 ALC 从主目录加载共享程序集）。 -->
+    <Reference Include="SfsMultiplayer.Server">
+      <HintPath>..\SfsMultiplayer.Server\SfsMultiplayer.Server\bin\Release\net8.0\win-x64\SFS-Multiplayer-Server.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SfsMultiplayer.Protocol">
+      <HintPath>..\SfsMultiplayer.Protocol\SfsMultiplayer.Protocol\bin\Release\net8.0\SfsMultiplayer.Protocol.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

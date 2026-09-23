@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 using System.Net.Sockets;
 using SfsMultiplayer.Server;
 
@@ -40,8 +44,9 @@ public sealed class ServerSettingsYamlTests
     {
         var settings = new ServerSettings();
 
-        Assert.True(settings.P2P.Enabled);
-        Assert.Equal(5000, settings.P2P.ProximityMeters);
+        // 直连链路尚不稳定，默认关；要开得靠 server.yml 的 p2p.enabled: true（见 LoadsP2PYamlSection）
+        Assert.False(settings.P2P.Enabled);
+        Assert.Equal(10000, settings.P2P.ProximityMeters);
         Assert.Equal(1, settings.P2P.ValidationIntervalSeconds);
         Assert.Equal(3, settings.P2P.PeerTimeoutSeconds);
         Assert.Equal(10, settings.P2P.TransitionBufferSeconds);
